@@ -1,0 +1,192 @@
+:root {
+  /* ── Color tokens — matches the approved design (purple/indigo,
+     Inter font). Every page already references these variable names,
+     so retheming happens here in one place, not per-component. ────── */
+  --ink: #20242c;
+  --ink-soft: #697386;
+  --paper: #f6f7fb;
+  --surface: #ffffff;
+  --line: #dfe3ea;
+  --primary: #5b4df5;
+  --primary-dark: #4838df;
+  --primary-soft: #eeecff;
+  --accent: #0ca678;
+  --accent-soft: #e9fbf4;
+  --danger: #d92d20;
+  --danger-soft: #fff1f0;
+  --shadow: 0 24px 70px rgba(34, 30, 79, 0.15);
+  --shadow-small: 0 3px 12px rgba(25, 32, 56, 0.07);
+
+  /* Tenant identity colors — unchanged; each company still gets a
+     consistent, distinct accent regardless of light/dark mode. */
+  --tenant-1: #0f766e;
+  --tenant-2: #7c4a2d;
+  --tenant-3: #4338ca;
+
+  --radius: 10px;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+  --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* Dark mode — same variable names, re-pointed. Toggled by setting
+   data-theme="dark" on <html> (see lib/theme.ts). Nothing in any page's
+   own code needs to change to support this. */
+[data-theme="dark"] {
+  --ink: #eceef5;
+  --ink-soft: #9599ac;
+  --paper: #14151f;
+  --surface: #1c1e2b;
+  --line: #2d3040;
+  --primary: #8b7bff;
+  --primary-dark: #a396ff;
+  --primary-soft: #2a2555;
+  --accent: #3ddba0;
+  --accent-soft: #113a2d;
+  --danger: #ef5350;
+  --danger-soft: #3a1f1f;
+  --shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+  --shadow-small: 0 3px 12px rgba(0, 0, 0, 0.3);
+}
+
+* { box-sizing: border-box; }
+
+/* `height: 100%` + `overflow: hidden` (not `min-height`) is what makes
+   AppShell's `.page { height: 100vh }` an actual hard ceiling. Without
+   this, the moment content needs a fraction more room than the viewport
+   — from browser zoom, a long conversation list, an extra suggested
+   question, whatever — html/body just grow taller and the WHOLE
+   document becomes the scrollable thing. That drags the sticky
+   header/nav apart from everything else and pulls the footer up next
+   to the chat input, which is the "footer is floating" bug. Capping
+   these three means only the internal `.messages` / right-panel panes
+   (which already have `overflow: auto`) ever scroll — the shell itself
+   never does. */
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+  font-family: var(--sans);
+  background: var(--paper);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+button {
+  font-family: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* ============================================================================
+   Responsive layout classes
+   ============================================================================
+   Inline React styles (style={{...}}) cannot contain @media queries at
+   all — that's the root cause of the zoom/viewport bug. These classes
+   are used for the multi-column page layouts (Ask AI, Genie) so they can
+   actually respond to viewport width and browser zoom, matching the
+   breakpoints used in the approved design (1150px / 850px).
+   ============================================================================ */
+
+.rz-three-col {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+  overflow: hidden;
+  gap: 16px;
+  padding: 16px;
+  background: var(--paper);
+}
+.rz-three-col > .rz-col-left {
+  width: 230px;
+  flex-shrink: 0;
+  min-height: 0;
+}
+.rz-three-col > .rz-col-main {
+  flex: 1 1 400px;
+  min-width: 0;
+  min-height: 0;
+}
+.rz-three-col > .rz-col-right {
+  width: 270px;
+  flex-shrink: 0;
+  min-height: 0;
+}
+
+.rz-two-col {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+  overflow: hidden;
+  gap: 16px;
+  padding: 16px;
+  background: var(--paper);
+}
+.rz-two-col > .rz-col-left {
+  width: 240px;
+  flex-shrink: 0;
+  min-height: 0;
+}
+.rz-two-col > .rz-col-main {
+  flex: 1 1 500px;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Each column renders as its own floating, rounded card — not a flush
+   panel with divider borders — matching the approved reference design.
+   min-height: 0 is the crucial (and easy to miss) piece that lets a
+   flex child actually SHRINK below its natural content size, which is
+   what allows the internal .messages/.conversations regions to scroll
+   INSIDE the card instead of pushing the whole page taller than the
+   viewport (the "need to scroll to see the footer" bug). */
+.rz-card-col {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-small);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+@media (max-width: 1150px) {
+  .rz-three-col > .rz-col-right { display: none; }
+}
+
+@media (max-width: 850px) {
+  .rz-three-col, .rz-two-col { flex-direction: column; }
+  .rz-three-col > .rz-col-left,
+  .rz-two-col > .rz-col-left {
+    width: 100%;
+  }
+}
+
+/* Prevents the top nav from silently clipping tabs at high zoom levels —
+   it scrolls horizontally instead of overlapping content. */
+.rz-navbar {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.rz-navbar::-webkit-scrollbar { height: 4px; }
+
+/* Spin animation for the Dashboards refresh button — inline styles can't
+   declare @keyframes, so it lives here and DashboardPage just references
+   the class name. */
+@keyframes rz-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
