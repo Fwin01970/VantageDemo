@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Sign in | Fulcrum Analytics</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    :root {
+      --primary: #5b4df5;
+      --primary-dark: #4838df;
+      --primary-soft: #eeecff;
+      --background: #f6f7fb;
+      --surface: #ffffff;
+      --border: #dfe3ea;
+      --text: #20242c;
+      --text-muted: #697386;
+      --danger: #d92d20;
+      --danger-soft: #fff1f0;
+      --success: #0b8f65;
+      --success-soft: #e9fbf4;
+      --shadow: 0 24px 70px rgba(34, 30, 79, 0.15);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+    }
+
+    body {
+      color: var(--text);
+      background: var(--background);
+      font-family: "Inter", sans-serif;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .login-page {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: minmax(400px, 0.85fr) minmax(520px, 1.15fr);
+    }
+
+    /* Login panel */
+
+    .login-panel {
+      min-height: 100vh;
+      padding: 34px clamp(28px, 6vw, 84px);
+      display: flex;
+      flex-direction: column;
+      background: var(--surface);
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    .brand-logo {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      color: #ffffff;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--primary-dark), #786cff);
+      box-shadow: 0 9px 22px rgba(91, 77, 245, 0.27);
+    }
+
+    .brand-name {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .brand-subtitle {
+      margin-top: 3px;
+      color: var(--text-muted);
+      font-size: 10px;
+    }
+
+    .login-content {
+      width: 100%;
+      max-width: 430px;
+      margin: auto;
+      padding: 50px 0;
+    }
+
+    .login-heading {
+      margin-bottom: 30px;
+    }
+
+    .login-heading h1 {
+      margin: 0;
+      font-size: clamp(27px, 3vw, 34px);
+      letter-spacing: -1.2px;
+    }
+
+    .login-heading p {
+      margin: 10px 0 0;
+      color: var(--text-muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .sso-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 11px;
+    }
+
+    .sso-button {
+      min-height: 46px;
+      padding: 0 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #ffffff;
+      font-size: 12px;
+      font-weight: 600;
+      transition: 160ms ease;
+    }
+
+    .sso-button:hover {
+      color: var(--primary);
+      border-color: #bdb6ff;
+      background: var(--primary-soft);
+      transform: translateY(-1px);
+    }
+
+    .microsoft-logo {
+      width: 17px;
+      height: 17px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2px;
+    }
+
+    .microsoft-logo span:nth-child(1) {
+      background: #f25022;
+    }
+
+    .microsoft-logo span:nth-child(2) {
+      background: #7fba00;
+    }
+
+    .microsoft-logo span:nth-child(3) {
+      background: #00a4ef;
+    }
+
+    .microsoft-logo span:nth-child(4) {
+      background: #ffb900;
+    }
+
+    .divider {
+      margin: 25px 0;
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      color: #9aa1ad;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+    }
+
+    .divider::before,
+    .divider::after {
+      height: 1px;
+      flex: 1;
+      content: "";
+      background: var(--border);
+    }
+
+    .field {
+      margin-bottom: 17px;
+    }
+
+    .field-header {
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .field label {
+      color: #353a46;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .input-wrapper {
+      position: relative;
+    }
+
+    .input-icon {
+      top: 50%;
+      left: 14px;
+      color: #8b93a1;
+      pointer-events: none;
+      position: absolute;
+      transform: translateY(-50%);
+    }
+
+    .field input {
+      width: 100%;
+      height: 48px;
+      padding: 0 45px;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      outline: none;
+      background: #ffffff;
+      font-size: 12px;
+      transition: 160ms ease;
+    }
+
+    .field input::placeholder {
+      color: #a0a6b0;
+    }
+
+    .field input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 4px var(--primary-soft);
+    }
+
+    .field input.invalid {
+      border-color: var(--danger);
+      box-shadow: 0 0 0 4px var(--danger-soft);
+    }
+
+    .password-toggle {
+      width: 39px;
+      height: 39px;
+      top: 50%;
+      right: 5px;
+      display: grid;
+      place-items: center;
+      color: var(--text-muted);
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      position: absolute;
+      transform: translateY(-50%);
+    }
+
+    .password-toggle:hover {
+      color: var(--primary);
+      background: var(--primary-soft);
+    }
+
+    .field-error {
+      min-height: 16px;
+      margin: 6px 0 0;
+      color: var(--danger);
+      font-size: 10px;
+    }
+
+    .forgot-link,
+    .support-link {
+      color: var(--primary);
+      font-size: 11px;
+      font-weight: 600;
+      text-decoration: none;
+    }
+
+    .forgot-link:hover,
+    .support-link:hover {
+      text-decoration: underline;
+    }
+
+    .login-options {
+      margin: 2px 0 23px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-muted);
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .checkbox-label input {
+      width: 15px;
+      height: 15px;
+      accent-color: var(--primary);
+    }
+
+    .sign-in-button {
+      width: 100%;
+      min-height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      color: #ffffff;
+      border: 0;
+      border-radius: 10px;
+      background: linear-gradient(110deg, var(--primary-dark), var(--primary));
+      box-shadow: 0 10px 25px rgba(91, 77, 245, 0.25);
+      font-size: 12px;
+      font-weight: 700;
+      transition: 160ms ease;
+    }
+
+    .sign-in-button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 13px 28px rgba(91, 77, 245, 0.32);
+    }
+
+    .sign-in-button:disabled {
+      cursor: not-allowed;
+      opacity: 0.7;
+      transform: none;
+    }
+
+    .spinner {
+      width: 16px;
+      height: 16px;
+      display: none;
+      border: 2px solid rgba(255, 255, 255, 0.45);
+      border-top-color: #ffffff;
+      border-radius: 50%;
+      animation: spin 700ms linear infinite;
+    }
+
+    .sign-in-button.loading .spinner {
+      display: block;
+    }
+
+    .sign-in-button.loading .button-icon {
+      display: none;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .form-message {
+      margin-bottom: 16px;
+      padding: 11px 13px;
+      display: none;
+      align-items: flex-start;
+      gap: 8px;
+      border: 1px solid transparent;
+      border-radius: 9px;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .form-message.error {
+      display: flex;
+      color: var(--danger);
+      border-color: #ffc7c2;
+      background: var(--danger-soft);
+    }
+
+    .form-message.success {
+      display: flex;
+      color: var(--success);
+      border-color: #b8efd9;
+      background: var(--success-soft);
+    }
+
+    .security-note {
+      margin-top: 20px;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      color: var(--text-muted);
+      font-size: 10px;
+      line-height: 1.5;
+    }
+
+    .login-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      color: var(--text-muted);
+      font-size: 9px;
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 14px;
+    }
+
+    .footer-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+    }
+
+    .footer-links a:hover {
+      color: var(--primary);
+    }
+
+    /* Visual panel */
+
+    .visual-panel {
+      margin: 14px 14px 14px 0;
+      padding: clamp(34px, 6vw, 80px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      color: #ffffff;
+      border-radius: 24px;
+      background:
+        radial-gradient(
+          circle at 84% 15%,
+          rgba(135, 121, 255, 0.9),
+          transparent 27%
+        ),
+        radial-gradient(
+          circle at 10% 95%,
+          rgba(61, 185, 165, 0.28),
+          transparent 32%
+        ),
+        linear-gradient(140deg, #21184e, #4939b6 58%, #6254dc);
+      position: relative;
+    }
+
+    .visual-panel::before {
+      width: 430px;
+      height: 430px;
+      top: -170px;
+      right: -100px;
+      content: "";
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 50%;
+      position: absolute;
+    }
+
+    .visual-panel::after {
+      width: 340px;
+      height: 340px;
+      bottom: -190px;
+      left: -130px;
+      content: "";
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 50%;
+      position: absolute;
+    }
+
+    .visual-content {
+      width: min(580px, 100%);
+      position: relative;
+      z-index: 2;
+    }
+
+    .eyebrow {
+      margin-bottom: 18px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: #dfdcff;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    .eyebrow-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #69e6c2;
+      box-shadow: 0 0 0 5px rgba(105, 230, 194, 0.14);
+    }
+
+    .visual-content h2 {
+      max-width: 540px;
+      margin: 0;
+      font-size: clamp(35px, 5vw, 58px);
+      line-height: 1.08;
+      letter-spacing: -2.4px;
+    }
+
+    .visual-content > p {
+      max-width: 500px;
+      margin: 22px 0 34px;
+      color: rgba(255, 255, 255, 0.72);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    .analytics-preview {
+      padding: 19px;
+      border: 1px solid rgba(255, 255, 255, 0.19);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.11);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px);
+    }
+
+    .preview-header {
+      margin-bottom: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .preview-title {
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .preview-status {
+      padding: 5px 8px;
+      color: #9bf2d7;
+      border-radius: 20px;
+      background: rgba(105, 230, 194, 0.13);
+      font-size: 8px;
+      font-weight: 700;
+    }
+
+    .preview-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 9px;
+    }
+
+    .preview-kpi {
+      padding: 13px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.09);
+    }
+
+    .preview-kpi span {
+      display: block;
+      color: rgba(255, 255, 255, 0.57);
+      font-size: 8px;
+    }
+
+    .preview-kpi strong {
+      margin-top: 7px;
+      display: block;
+      font-size: 17px;
+    }
+
+    .preview-chart {
+      height: 135px;
+      margin-top: 11px;
+      padding: 15px 11px 0;
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      border-radius: 11px;
+      background: rgba(18, 12, 51, 0.25);
+    }
+
+    .preview-bar {
+      flex: 1;
+      min-width: 8px;
+      border-radius: 4px 4px 0 0;
+      background: linear-gradient(
+        to top,
+        rgba(105, 230, 194, 0.8),
+        rgba(181, 168, 255, 0.95)
+      );
+    }
+
+    @media (max-width: 900px) {
+      .login-page {
+        display: block;
+      }
+
+      .visual-panel {
+        display: none;
+      }
+
+      .login-panel {
+        min-height: 100vh;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .login-panel {
+        padding: 24px 20px;
+      }
+
+      .login-content {
+        padding: 45px 0;
+      }
+
+      .sso-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .login-footer {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="login-page">
+    <section class="login-panel">
+      <a class="brand" href="login.html" aria-label="Fulcrum Analytics">
+        <span class="brand-logo">
+          <i data-lucide="chart-no-axes-combined" size="22"></i>
+        </span>
+
+        <span>
+          <span class="brand-name">Fulcrum Analytics</span>
+          <span class="brand-subtitle">Enterprise Intelligence Platform</span>
+        </span>
+      </a>
+
+      <div class="login-content">
+        <div class="login-heading">
+          <h1>Welcome back</h1>
+          <p>
+            Sign in to access your analytics workspace, AI Assistant,
+            Genie, use cases, and dashboards.
+          </p>
+        </div>
+
+        <div class="sso-grid">
+          <button class="sso-button" id="microsoft-sign-in" type="button">
+            <span class="microsoft-logo" aria-hidden="true">
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+            </span>
+            Microsoft
+          </button>
+
+          <button class="sso-button" id="company-sso" type="button">
+            <i data-lucide="building-2" size="17"></i>
+            Company SSO
+          </button>
+        </div>
+
+        <div class="divider">or continue with email</div>
+
+        <div class="form-message" id="form-message" role="alert">
+          <i data-lucide="circle-alert" size="16"></i>
+          <span id="form-message-text"></span>
+        </div>
+
+        <form id="login-form" novalidate>
+          <div class="field">
+            <div class="field-header">
+              <label for="email">Work email</label>
+            </div>
+
+            <div class="input-wrapper">
+              <i class="input-icon" data-lucide="mail" size="16"></i>
+
+              <input
+                id="email"
+                name="email"
+                type="email"
+                autocomplete="email"
+                placeholder="name@company.com"
+                required
+              />
+            </div>
+
+            <p class="field-error" id="email-error"></p>
+          </div>
+
+          <div class="field">
+            <div class="field-header">
+              <label for="password">Password</label>
+
+              <a class="forgot-link" href="#" id="forgot-password">
+                Forgot password?
+              </a>
+            </div>
+
+            <div class="input-wrapper">
+              <i class="input-icon" data-lucide="lock-keyhole" size="16"></i>
+
+              <input
+                id="password"
+                name="password"
+                type="password"
+                autocomplete="current-password"
+                placeholder="Enter your password"
+                required
+              />
+
+              <button
+                class="password-toggle"
+                id="password-toggle"
+                type="button"
+                aria-label="Show password"
+              >
+                <i data-lucide="eye" size="17"></i>
+              </button>
+            </div>
+
+            <p class="field-error" id="password-error"></p>
+          </div>
+
+          <div class="login-options">
+            <label class="checkbox-label">
+              <input id="remember-me" type="checkbox" />
+              Keep me signed in
+            </label>
+
+            <a class="support-link" href="mailto:support@company.com">
+              Need help?
+            </a>
+          </div>
+
+          <button class="sign-in-button" id="sign-in-button" type="submit">
+            <span class="spinner"></span>
+            <i class="button-icon" data-lucide="log-in" size="16"></i>
+            <span id="sign-in-text">Sign in</span>
+          </button>
+        </form>
+
+        <div class="security-note">
+          <i data-lucide="shield-check" size="15"></i>
+          <span>
+            Access is restricted to authorised users. Activity may be monitored
+            according to your organisation's security policies.
+          </span>
+        </div>
+      </div>
+
+      <footer class="login-footer">
+        <span>© 2026 Fulcrum Digital</span>
+
+        <div class="footer-links">
+          <a href="#">Privacy</a>
+          <a href="#">Security</a>
+          <a href="#">Terms</a>
+        </div>
+      </footer>
+    </section>
+
+    <aside class="visual-panel">
+      <div class="visual-content">
+        <div class="eyebrow">
+          <span class="eyebrow-dot"></span>
+          Intelligent enterprise analytics
+        </div>
+
+        <h2>Turn business data into decisions.</h2>
+
+        <p>
+          Ask questions in natural language, generate governed SQL, and
+          transform insights into live, reusable dashboards.
+        </p>
+
+        <div class="analytics-preview">
+          <div class="preview-header">
+            <span class="preview-title">Business performance overview</span>
+            <span class="preview-status">Live data</span>
+          </div>
+
+          <div class="preview-grid">
+            <div class="preview-kpi">
+              <span>Total revenue</span>
+              <strong>$22.9M</strong>
+            </div>
+
+            <div class="preview-kpi">
+              <span>Growth</span>
+              <strong>+12.4%</strong>
+            </div>
+
+            <div class="preview-kpi">
+              <span>Forecast</span>
+              <strong>94.2%</strong>
+            </div>
+          </div>
+
+          <div class="preview-chart" aria-label="Revenue chart preview">
+            <div class="preview-bar" style="height: 38%"></div>
+            <div class="preview-bar" style="height: 51%"></div>
+            <div class="preview-bar" style="height: 47%"></div>
+            <div class="preview-bar" style="height: 66%"></div>
+            <div class="preview-bar" style="height: 59%"></div>
+            <div class="preview-bar" style="height: 76%"></div>
+            <div class="preview-bar" style="height: 68%"></div>
+            <div class="preview-bar" style="height: 89%"></div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    lucide.createIcons();
+
+    const loginForm = document.getElementById("login-form");
+    const emailInput = document.getElementById("email");
+    const passwordInput = document.getElementById("password");
+    const rememberMeInput = document.getElementById("remember-me");
+    const signInButton = document.getElementById("sign-in-button");
+    const signInText = document.getElementById("sign-in-text");
+
+    const emailError = document.getElementById("email-error");
+    const passwordError = document.getElementById("password-error");
+    const formMessage = document.getElementById("form-message");
+    const formMessageText = document.getElementById("form-message-text");
+
+    /*
+     * Demo credentials:
+     * Email: analyst@company.com
+     * Password: Analytics@123
+     *
+     * Remove this client-side credential check when connecting a real API.
+     */
+    const DEMO_USER = {
+      email: "analyst@company.com",
+      password: "Analytics@123",
+      name: "Aarav Sharma",
+      role: "Senior Business Analyst"
+    };
+
+    function setFieldError(input, errorElement, message) {
+      input.classList.toggle("invalid", Boolean(message));
+      errorElement.textContent = message;
+    }
+
+    function clearMessages() {
+      setFieldError(emailInput, emailError, "");
+      setFieldError(passwordInput, passwordError, "");
+
+      formMessage.className = "form-message";
+      formMessageText.textContent = "";
+    }
+
+    function showFormMessage(type, message) {
+      formMessage.className = `form-message ${type}`;
+      formMessageText.textContent = message;
+      lucide.createIcons();
+    }
+
+    function isValidEmail(email) {
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    }
+
+    function validateForm() {
+      clearMessages();
+
+      const email = emailInput.value.trim();
+      const password = passwordInput.value;
+
+      let valid = true;
+
+      if (!email) {
+        setFieldError(
+          emailInput,
+          emailError,
+          "Enter your work email address."
+        );
+        valid = false;
+      } else if (!isValidEmail(email)) {
+        setFieldError(
+          emailInput,
+          emailError,
+          "Enter a valid email address."
+        );
+        valid = false;
+      }
+
+      if (!password) {
+        setFieldError(
+          passwordInput,
+          passwordError,
+          "Enter your password."
+        );
+        valid = false;
+      } else if (password.length < 8) {
+        setFieldError(
+          passwordInput,
+          passwordError,
+          "Password must contain at least 8 characters."
+        );
+        valid = false;
+      }
+
+      return valid;
+    }
+
+    function setLoading(isLoading) {
+      signInButton.disabled = isLoading;
+      signInButton.classList.toggle("loading", isLoading);
+      signInText.textContent = isLoading ? "Signing in..." : "Sign in";
+    }
+
+    function createDemoSession(user, remember) {
+      const storage = remember ? localStorage : sessionStorage;
+
+      storage.setItem(
+        "fulcrumAnalyticsSession",
+        JSON.stringify({
+          authenticated: true,
+          user: {
+            name: user.name,
+            email: user.email,
+            role: user.role
+          },
+          createdAt: new Date().toISOString()
+        })
+      );
+    }
+
+    loginForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+
+      if (!validateForm()) {
+        return;
+      }
+
+      setLoading(true);
+
+      /*
+       * This delay simulates a server request.
+       * Replace it with a call to your authentication API.
+       */
+      window.setTimeout(() => {
+        const email = emailInput.value.trim().toLowerCase();
+        const password = passwordInput.value;
+
+        if (
+          email === DEMO_USER.email &&
+          password === DEMO_USER.password
+        ) {
+          createDemoSession(DEMO_USER, rememberMeInput.checked);
+
+          showFormMessage(
+            "success",
+            "Sign-in successful. Opening your analytics workspace..."
+          );
+
+          window.setTimeout(() => {
+            window.location.href = "index.html";
+          }, 650);
+
+          return;
+        }
+
+        setLoading(false);
+
+        showFormMessage(
+          "error",
+          "The email or password is incorrect. Check your credentials and try again."
+        );
+      }, 750);
+    });
+
+    document
+      .getElementById("password-toggle")
+      .addEventListener("click", (event) => {
+        const button = event.currentTarget;
+        const showingPassword = passwordInput.type === "text";
+
+        passwordInput.type = showingPassword ? "password" : "text";
+        button.setAttribute(
+          "aria-label",
+          showingPassword ? "Show password" : "Hide password"
+        );
+
+        button.innerHTML = showingPassword
+          ? '<i data-lucide="eye" size="17"></i>'
+          : '<i data-lucide="eye-off" size="17"></i>';
+
+        lucide.createIcons();
+      });
+
+    document
+      .getElementById("forgot-password")
+      .addEventListener("click", (event) => {
+        event.preventDefault();
+
+        clearMessages();
+
+        showFormMessage(
+          "success",
+          "Contact your administrator or use your organisation's identity provider to reset your password."
+        );
+      });
+
+    function simulateSso(provider) {
+      clearMessages();
+
+      showFormMessage(
+        "success",
+        `Redirecting to ${provider} authentication...`
+      );
+
+      /*
+       * Replace this with the real OAuth/OIDC authorisation URL:
+       * window.location.href = "/api/auth/login?provider=microsoft";
+       */
+    }
+
+    document
+      .getElementById("microsoft-sign-in")
+      .addEventListener("click", () => simulateSso("Microsoft"));
+
+    document
+      .getElementById("company-sso")
+      .addEventListener("click", () => simulateSso("Company SSO"));
+
+    [emailInput, passwordInput].forEach((input) => {
+      input.addEventListener("input", clearMessages);
+    });
+  </script>
+</body>
+</html>
