@@ -55,7 +55,7 @@ export default function App() {
     localStorage.removeItem(STORAGE_KEY);
     setToken(null);
     setDemoMode(null);
-    setView("splash");
+    setView("login");
   }
 
   function startDemo(mode: "guided" | "explore") {

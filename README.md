@@ -154,6 +154,32 @@ http://127.0.0.1:8000/docs
 This is an interactive test page that FastAPI generates automatically —
 you can try every endpoint from your browser without writing any code.
 
+## Tenant-specific PostgreSQL schemas
+
+The application uses a hybrid tenant layout. Shared identity, authentication,
+RBAC, credentials, data-source metadata, and centralized audit tables remain in
+`public` so login can find the user before the tenant schema is known. Tenant
+application data (`use_cases`, conversations/messages, dashboard pins,
+governance reviews, and schema annotations) is stored in a separate schema for
+each tenant, named from its UUID, such as `tenant_abc123...`.
+
+After applying the existing database scripts, run
+`database/tenant_application_schemas.sql` with the database owner/admin
+connection. It adds the trusted schema mapping, creates schemas for existing
+tenants, copies existing application rows, and provisions the same tables
+automatically when a new tenant is created.
+
+On an authenticated request, the backend verifies the user and tenant using
+the shared `public` tables, then sets the connection search path to the
+authenticated tenant schema followed by `public`. The connection is held for
+the request and the search path is reset during cleanup, preventing pooled
+connections from retaining another tenant's schema.
+
+The backend must continue using the restricted `ryze_app` role. Apply this
+migration before starting the backend after this change; otherwise the
+`tenants.schema_name` column will not exist and authenticated requests will
+fail.
+
 ---
 
 ## Step 5 — Try the multi-tenant login and permissions

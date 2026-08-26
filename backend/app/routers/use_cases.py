@@ -22,7 +22,6 @@ from sqlalchemy import text
 
 from app.database import get_db
 from app.auth.dependencies import get_current_user
-from app.services.rbac import require_permission
 from app.services.tenant_resolver import TenantContext
 from app.services.data_source_resolver import get_databricks_client_for_user, DataSourceNotConfigured, SecretNotFound
 from app.services.databricks_client import DatabricksError
@@ -40,7 +39,7 @@ def list_use_cases(
     rows = db.execute(
         text(
             "SELECT id, title, description, category, sample_question, icon_key, "
-            "generated_sql IS NOT NULL AS has_cached_query "
+            "generated_sql, generated_sql IS NOT NULL AS has_cached_query "
             "FROM use_cases ORDER BY created_at ASC"
         )
     ).mappings().all()
@@ -62,10 +61,24 @@ class NewUseCase(BaseModel):
     generated_sql: str | None = None
 
 
+def normalize_generated_sql(sql: str | None) -> str | None:
+    normalized = sql.strip() if sql else None
+    if normalized:
+        try:
+            assert_read_only(normalized)
+        except QueryValidationError as e:
+            raise HTTPException(status_code=400, detail=f"Query must be read-only: {e}")
+    return normalized or None
+
+
+class UpdateUseCase(NewUseCase):
+    pass
+
+
 @router.post("")
 def create_use_case(
     body: NewUseCase,
-    ctx: TenantContext = Depends(require_permission("tenant:manage")),
+    ctx: TenantContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -77,6 +90,7 @@ def create_use_case(
     verified token, not anything client-supplied), consistent with
     every other tenant-scoped write in this app.
     """
+    generated_sql = normalize_generated_sql(body.generated_sql)
     row = db.execute(
         text(
             "INSERT INTO use_cases (tenant_id, title, description, category, sample_question, icon_key, generated_sql) "
@@ -86,10 +100,45 @@ def create_use_case(
         {
             "tenant_id": ctx.tenant_id, "title": body.title, "description": body.description,
             "category": body.category, "sample_question": body.sample_question, "icon_key": body.icon_key,
-            "generated_sql": body.generated_sql,
+            "generated_sql": generated_sql,
         },
     ).mappings().first()
     db.commit()
+    log_event(
+        db, tenant_id=ctx.tenant_id, user_id=ctx.user_id,
+        action="usecase.create", details={"use_case_id": str(row["id"]), "title": body.title},
+    )
+    return {"id": str(row["id"])}
+
+
+@router.put("/{use_case_id}")
+def update_use_case(
+    use_case_id: str,
+    body: UpdateUseCase,
+    ctx: TenantContext = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    generated_sql = normalize_generated_sql(body.generated_sql)
+    row = db.execute(
+        text(
+            "UPDATE use_cases SET title = :title, description = :description, category = :category, "
+            "sample_question = :sample_question, icon_key = :icon_key, generated_sql = :generated_sql "
+            "WHERE id = :id RETURNING id"
+        ),
+        {
+            "id": use_case_id, "title": body.title, "description": body.description,
+            "category": body.category, "sample_question": body.sample_question,
+            "icon_key": body.icon_key, "generated_sql": generated_sql,
+        },
+    ).mappings().first()
+    if row is None:
+        db.rollback()
+        raise HTTPException(status_code=404, detail="No use case found with that id")
+    db.commit()
+    log_event(
+        db, tenant_id=ctx.tenant_id, user_id=ctx.user_id,
+        action="usecase.update", details={"use_case_id": use_case_id, "title": body.title},
+    )
     return {"id": str(row["id"])}
 
 
@@ -156,7 +205,7 @@ def run_use_case(
 @router.delete("/{use_case_id}")
 def delete_use_case(
     use_case_id: str,
-    ctx: TenantContext = Depends(require_permission("tenant:manage")),
+    ctx: TenantContext = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Same permission as creating one — removing a preset use case is
@@ -167,4 +216,8 @@ def delete_use_case(
     db.commit()
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="No use case found with that id")
+    log_event(
+        db, tenant_id=ctx.tenant_id, user_id=ctx.user_id,
+        action="usecase.delete", details={"use_case_id": use_case_id},
+    )
     return {"deleted": True}

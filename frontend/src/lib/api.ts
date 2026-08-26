@@ -70,6 +70,7 @@ export interface UseCase {
   category: string;
   sample_question: string;
   icon_key: string;
+  generated_sql: string | null;
   has_cached_query: boolean;
 }
 
@@ -349,6 +350,19 @@ export async function createUseCase(
 ): Promise<{ id: string }> {
   const res = await fetch(`${API_BASE}/use-cases`, {
     method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(data),
+  });
+  return handle(res);
+}
+
+export async function updateUseCase(
+  token: string,
+  id: string,
+  data: { title: string; description: string; category: string; sample_question: string; generated_sql?: string | null }
+): Promise<{ id: string }> {
+  const res = await fetch(`${API_BASE}/use-cases/${id}`, {
+    method: "PUT",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify(data),
   });

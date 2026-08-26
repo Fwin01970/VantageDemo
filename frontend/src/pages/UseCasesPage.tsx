@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  fetchUseCases, createUseCase, deleteUseCase, runUseCase, sendChatMessage,
+  fetchUseCases, createUseCase, updateUseCase, deleteUseCase, runUseCase, sendChatMessage,
   UseCase, ApiError, GenieResult,
 } from "../lib/api";
 import ChatDataChart from "../components/ChatDataChart";
@@ -40,6 +40,7 @@ export default function UseCasesPage({ token, canCreate, onSessionExpired, onRes
   const [cases, setCases] = useState<UseCase[] | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>("All");
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
@@ -48,6 +49,7 @@ export default function UseCasesPage({ token, canCreate, onSessionExpired, onRes
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("");
   const [sampleQuestion, setSampleQuestion] = useState("");
+  const [generatedSql, setGeneratedSql] = useState("");
 
   // #5 — a one-time preview of the query + result while adding a new use
   // case, so the sample question can be adjusted BEFORE it's saved as an
@@ -178,10 +180,31 @@ export default function UseCasesPage({ token, canCreate, onSessionExpired, onRes
       return;
     }
     setFormError(null);
-    runQuestion(sampleQuestion, setPreviewRun, setPreviewSql);
+    runQuestion(sampleQuestion, setPreviewRun, (sql) => {
+      setPreviewSql(sql);
+      if (sql) setGeneratedSql(sql);
+    });
   }
 
-  async function handleCreate() {
+  function resetForm() {
+    setTitle(""); setDescription(""); setCategory(""); setSampleQuestion("");
+    setGeneratedSql(""); setPreviewRun(EMPTY_RUN); setPreviewSql(null); setEditingId(null);
+  }
+
+  function openCreate() {
+    resetForm();
+    setFormError(null);
+    setShowForm(true);
+  }
+
+  function openEdit(c: UseCase) {
+    setEditingId(c.id);
+    setTitle(c.title); setDescription(c.description); setCategory(c.category);
+    setSampleQuestion(c.sample_question); setGeneratedSql(c.generated_sql ?? "");
+    setPreviewSql(c.generated_sql); setPreviewRun(EMPTY_RUN); setFormError(null); setShowForm(true);
+  }
+
+  async function handleSave() {
     if (!title.trim() || !description.trim() || !category.trim() || !sampleQuestion.trim()) {
       setFormError("All fields are required.");
       return;
@@ -189,12 +212,16 @@ export default function UseCasesPage({ token, canCreate, onSessionExpired, onRes
     setSaving(true);
     setFormError(null);
     try {
-      await createUseCase(token, {
-        title, description, category, sample_question: sampleQuestion, generated_sql: previewSql,
-      });
-      setTitle(""); setDescription(""); setCategory(""); setSampleQuestion("");
-      setPreviewRun(EMPTY_RUN);
-      setPreviewSql(null);
+      const data = {
+        title, description, category, sample_question: sampleQuestion,
+        generated_sql: generatedSql.trim() || null,
+      };
+      if (editingId) {
+        await updateUseCase(token, editingId, data);
+      } else {
+        await createUseCase(token, data);
+      }
+      resetForm();
       setShowForm(false);
       load();
     } catch (e) {
@@ -228,7 +255,7 @@ export default function UseCasesPage({ token, canCreate, onSessionExpired, onRes
             {categories.map((c) => <option key={c}>{c}</option>)}
           </select>
           {canCreate && (
-            <button style={styles.createBtn} onClick={() => setShowForm((s) => !s)}>
+            <button style={styles.createBtn} onClick={() => showForm ? setShowForm(false) : openCreate()}>
               + Create use case
             </button>
           )}
@@ -261,9 +288,17 @@ export default function UseCasesPage({ token, canCreate, onSessionExpired, onRes
               {previewRun.loading ? "Running…" : "▶ Preview"}
             </button>
           </div>
+          <label style={styles.label}>Saved SQL query (optional)</label>
+          <textarea
+            style={styles.sqlInput}
+            value={generatedSql}
+            onChange={(e) => { setGeneratedSql(e.target.value); setPreviewSql(null); }}
+            placeholder="Paste a read-only SQL query, or leave blank to save without cached SQL"
+            rows={6}
+          />
           <p style={styles.previewHint}>
-            Preview runs the question once so you can see the actual query result before saving —
-            adjust the wording and preview again as many times as you like.
+            Preview is optional. It generates SQL when LLM access is available; you can also paste
+            a read-only query directly or save without cached SQL.
           </p>
 
           {(previewRun.reply || previewRun.blocked || previewRun.error) && (
@@ -272,8 +307,8 @@ export default function UseCasesPage({ token, canCreate, onSessionExpired, onRes
 
           {formError && <div style={styles.formError}>{formError}</div>}
           <div style={styles.formActions}>
-            <button style={styles.cancelBtn} onClick={() => { setShowForm(false); setPreviewRun(EMPTY_RUN); setPreviewSql(null); }}>Cancel</button>
-            <button style={styles.saveBtn} onClick={handleCreate} disabled={saving}>{saving ? "Saving…" : "Save use case"}</button>
+            <button style={styles.cancelBtn} onClick={() => { resetForm(); setShowForm(false); }}>Cancel</button>
+            <button style={styles.saveBtn} onClick={handleSave} disabled={saving}>{saving ? "Saving…" : editingId ? "Update use case" : "Save use case"}</button>
           </div>
         </div>
       )}
@@ -298,13 +333,10 @@ export default function UseCasesPage({ token, canCreate, onSessionExpired, onRes
         {filtered.map((c) => (
           <div key={c.id} style={styles.card}>
             {canCreate && (
-              <button
-                style={styles.deleteBtn}
-                title="Delete this use case"
-                onClick={() => setDeleteTargetId(c.id)}
-              >
-                ✕
-              </button>
+              <div style={styles.cardActions}>
+                <button style={styles.editBtn} title="Edit this use case" onClick={() => openEdit(c)}>Edit</button>
+                <button style={styles.deleteBtn} title="Delete this use case" onClick={() => setDeleteTargetId(c.id)}>✕</button>
+              </div>
             )}
             <div style={styles.icon}>★</div>
             <h3 style={styles.title}>{c.title}</h3>
@@ -379,6 +411,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 6, padding: "0 16px", fontSize: 12.5, fontWeight: 600, cursor: "pointer",
   },
   previewHint: { fontSize: 11.5, color: "var(--ink-soft)", margin: "6px 0 0" },
+  sqlInput: { width: "100%", padding: "9px 11px", fontSize: 12.5, fontFamily: "monospace", border: "1px solid var(--line)", borderRadius: 6, background: "var(--surface)", color: "var(--ink)", resize: "vertical" },
   formError: { fontSize: 12.5, color: "var(--danger)", marginTop: 10 },
   formActions: { display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 16 },
   cancelBtn: { background: "none", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 16px", fontSize: 13, cursor: "pointer", color: "var(--ink)" },
@@ -386,14 +419,16 @@ const styles: Record<string, React.CSSProperties> = {
   loading: { color: "var(--ink-soft)", fontSize: 13.5 },
   emptyCard: { background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 10, padding: 24, textAlign: "center", color: "var(--ink-soft)", fontSize: 13.5 },
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 },
-  card: { position: "relative", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 10, padding: 19, display: "flex", flexDirection: "column" },
+  card: { position: "relative", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 10, padding: "56px 19px 19px", display: "flex", flexDirection: "column" },
+  cardActions: { position: "absolute", top: 10, right: 10, display: "flex", gap: 6, alignItems: "center" },
+  editBtn: { background: "none", border: "1px solid var(--line)", borderRadius: 6, color: "var(--ink-soft)", fontSize: 11, cursor: "pointer", padding: "3px 7px" },
   deleteBtn: {
-    position: "absolute", top: 10, right: 10, width: 22, height: 22, padding: 0,
+    width: 22, height: 22, padding: 0,
     background: "none", border: "1px solid var(--line)", borderRadius: 6, color: "var(--ink-soft)",
     fontSize: 11, cursor: "pointer", lineHeight: 1,
   },
   icon: { width: 40, height: 40, borderRadius: 10, background: "var(--primary-soft)", color: "var(--primary)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, marginBottom: 12 },
-  title: { fontSize: 14.5, margin: "0 0 6px", paddingRight: 20 },
+  title: { fontSize: 14.5, margin: "0 0 6px" },
   desc: { fontSize: 12, color: "var(--ink-soft)", lineHeight: 1.55, margin: 0, flex: 1 },
   footer: { marginTop: 16, display: "flex", justifyContent: "space-between", alignItems: "center" },
   category: { fontSize: 9.5, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: "var(--ink-soft)", display: "flex", alignItems: "center", gap: 5 },

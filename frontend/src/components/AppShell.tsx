@@ -235,7 +235,7 @@ export default function AppShell({ token, onLogout, demoMode = null, onRequestLo
           ) : (
             <UseCasesPage
               token={token}
-              canCreate={me?.permissions.includes("tenant:manage") ?? false}
+              canCreate={true}
               onSessionExpired={() => setSessionExpired(true)}
               onResult={setLastResult}
             />

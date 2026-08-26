@@ -24,6 +24,7 @@ class TenantContext:
     display_name: str
     email: str
     tenant_id: str
+    schema_name: str
     tenant_name: str
     industry: str
     roles: List[str]
@@ -57,6 +58,7 @@ def resolve_tenant_context(db: Session, user_id: str, tenant_id: str) -> Optiona
         display_name=user.display_name,
         email=user.email,
         tenant_id=str(tenant.id),
+        schema_name=tenant.schema_name,
         tenant_name=tenant.name,
         industry=tenant.industry,
         roles=role_names,

@@ -42,6 +42,7 @@ def get_db():
             db.rollback()
             connection.execute(text("RESET app.current_tenant_id"))
             connection.execute(text("RESET app.current_user_id"))
+            connection.execute(text("RESET search_path"))
             connection.commit()
         except Exception:
             # Connection may already be in a bad state (e.g. the request
@@ -69,3 +70,17 @@ def set_tenant_context(db: Session, tenant_id: str, user_id: str | None = None) 
     db.execute(text("SET app.current_tenant_id = :tenant_id"), {"tenant_id": tenant_id})
     if user_id:
         db.execute(text("SET app.current_user_id = :user_id"), {"user_id": user_id})
+
+
+def set_tenant_schema(db: Session, schema_name: str) -> None:
+    """Route unqualified application-table queries to a trusted tenant schema.
+
+    Schema names cannot be bound as normal SQL parameters. PostgreSQL's
+    quote_ident() performs identifier quoting inside the database, and the
+    value comes only from the authenticated tenant row, never from a request.
+    public remains second so shared identity/RBAC tables continue to resolve.
+    """
+    db.execute(
+        text("SELECT set_config('search_path', quote_ident(:schema_name) || ', public', false)"),
+        {"schema_name": schema_name},
+    )

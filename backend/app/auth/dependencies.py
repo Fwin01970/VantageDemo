@@ -13,7 +13,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError
 from sqlalchemy.orm import Session
 
-from app.database import get_db, set_tenant_context
+from app.database import get_db, set_tenant_context, set_tenant_schema
 from app.auth.fake_auth import decode_fake_token
 from app.services.tenant_resolver import TenantContext, resolve_tenant_context
 
@@ -64,5 +64,7 @@ def get_current_user(
     context = resolve_tenant_context(db, user_id=user_id, tenant_id=tenant_id)
     if context is None:
         raise HTTPException(status_code=401, detail="User or tenant not found")
+
+    set_tenant_schema(db, context.schema_name)
 
     return context
