@@ -142,7 +142,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   cardInner: { display: "flex", flexDirection: "column", width: "100%", height: "100%" },
   cardHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "14px 16px", borderBottom: "1px solid var(--line)", flexShrink: 0 },
-  cardTitle: { fontSize: 13.5, fontWeight: 700 },
+  cardTitle: { fontSize: 13.5, fontWeight: 700, lineHeight: 1.4, wordBreak: "break-word" },
   cardSub: { fontSize: 11, color: "var(--ink-soft)", marginTop: 2 },
   removeBtn: { background: "none", border: "1px solid var(--line)", borderRadius: 6, width: 26, height: 26, cursor: "pointer", color: "var(--ink-soft)", flexShrink: 0 },
   cardBody: { padding: 16, overflow: "auto", flex: 1, minHeight: 0 },

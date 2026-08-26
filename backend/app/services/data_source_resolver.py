@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.services.databricks_client import DatabricksClient
+from app.services.local_gold_client import LocalGoldClient
 
 
 class DataSourceNotConfigured(Exception):
@@ -32,19 +33,26 @@ class SecretNotFound(Exception):
     pass
 
 
-def get_databricks_client_for_tenant(db: Session, tenant_id: str) -> DatabricksClient:
+def get_databricks_client_for_tenant(db: Session, tenant_id: str) -> "DatabricksClient | LocalGoldClient":
     """
-    Looks up the CALLING TENANT'S OWN Databricks connection (Row-Level
-    Security on data_source_connections means this query physically
-    cannot see another tenant's row, even though it doesn't filter by
-    tenant_id itself — same pattern as /admin/tenants).
+    Looks up the CALLING TENANT'S OWN data connection (Row-Level Security
+    on data_source_connections means this query physically cannot see
+    another tenant's row, even though it doesn't filter by tenant_id
+    itself — same pattern as /admin/tenants).
+
+    Returns either a real DatabricksClient or a LocalGoldClient depending
+    on the tenant's `platform` — everything downstream (chat.py, Genie,
+    schema_context.py) calls the same methods on either one and neither
+    knows or cares which it got. Swapping a tenant from the local demo
+    dataset to a real Databricks workspace later is exactly one UPDATE
+    to this row's `platform` column.
     """
     row = db.execute(
         text(
             """
-            SELECT config, secret_ref
+            SELECT platform, config, secret_ref
             FROM data_source_connections
-            WHERE platform = 'databricks' AND is_active = true
+            WHERE platform IN ('databricks', 'local_demo') AND is_active = true
             LIMIT 1
             """
         )
@@ -52,10 +60,14 @@ def get_databricks_client_for_tenant(db: Session, tenant_id: str) -> DatabricksC
 
     if row is None:
         raise DataSourceNotConfigured(
-            "Your company doesn't have a Databricks connection set up yet."
+            "Your company doesn't have a data connection set up yet."
         )
 
     config = row["config"]
+
+    if row["platform"] == "local_demo":
+        return LocalGoldClient(schema=config.get("schema", "gold_demo"))
+
     secret_ref = row["secret_ref"]
 
     if not secret_ref:
@@ -84,7 +96,7 @@ def get_databricks_client_for_tenant(db: Session, tenant_id: str) -> DatabricksC
     )
 
 
-def get_databricks_client_for_user(db: Session, tenant_id: str, user_id: str) -> DatabricksClient:
+def get_databricks_client_for_user(db: Session, tenant_id: str, user_id: str) -> "DatabricksClient | LocalGoldClient":
     """
     NEW — see CREDENTIAL_MANAGEMENT_DESIGN.md. Checks whether THIS
     SPECIFIC USER has configured their own personal Databricks

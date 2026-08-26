@@ -70,6 +70,7 @@ export interface UseCase {
   category: string;
   sample_question: string;
   icon_key: string;
+  has_cached_query: boolean;
 }
 
 export interface ConversationSummary {
@@ -155,14 +156,47 @@ export async function fetchDemoUsers(): Promise<DemoUser[]> {
   return handle<DemoUser[]>(res);
 }
 
-export async function login(userId: string): Promise<string> {
-  const res = await fetch(`${API_BASE}/auth/login`, {
+export async function demoLogin(userId: string): Promise<string> {
+  const res = await fetch(`${API_BASE}/auth/demo-login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ user_id: userId }),
   });
   const data = await handle<{ access_token: string }>(res);
   return data.access_token;
+}
+
+export type OAuthProviderName = "microsoft" | "google" | "github" | "facebook";
+
+export async function fetchAuthProviders(): Promise<Record<OAuthProviderName, boolean>> {
+  const res = await fetch(`${API_BASE}/auth/providers`);
+  return handle(res);
+}
+
+export function oauthStartUrl(provider: OAuthProviderName): string {
+  return `${API_BASE}/auth/oauth/${provider}/start`;
+}
+
+export async function signup(data: {
+  email: string; password: string; display_name: string; company_name: string; industry?: string;
+}): Promise<string> {
+  const res = await fetch(`${API_BASE}/auth/signup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  const body = await handle<{ access_token: string }>(res);
+  return body.access_token;
+}
+
+export async function loginWithPassword(email: string, password: string): Promise<string> {
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  const body = await handle<{ access_token: string }>(res);
+  return body.access_token;
 }
 
 export async function fetchMe(token: string): Promise<MeResponse> {
@@ -311,12 +345,25 @@ export async function fetchUseCases(token: string): Promise<UseCase[]> {
 
 export async function createUseCase(
   token: string,
-  data: { title: string; description: string; category: string; sample_question: string }
+  data: { title: string; description: string; category: string; sample_question: string; generated_sql?: string | null }
 ): Promise<{ id: string }> {
   const res = await fetch(`${API_BASE}/use-cases`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify(data),
+  });
+  return handle(res);
+}
+
+// Re-runs a use case's ALREADY-SAVED SQL directly — no LLM call. Only
+// works once a use case actually has cached SQL (has_cached_query), set
+// the one time it was previewed while being created.
+export async function runUseCase(
+  token: string, id: string
+): Promise<{ sql: string; columns: string[]; rows: any[][] }> {
+  const res = await fetch(`${API_BASE}/use-cases/${id}/run`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
   });
   return handle(res);
 }

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { askGenie, GenieResult, ApiError, GuardrailEvent, pinItem, deletePinnedItem } from "../lib/api";
 import ChatDataChart from "../components/ChatDataChart";
 import MarkdownLite from "../components/MarkdownLite";
+import { truncateTitle } from "../lib/text";
 
 interface Props {
   token: string;
@@ -59,7 +60,7 @@ export default function GeniePage({ token, onResult, sessionExpired, onSessionEx
   async function handlePin() {
     if (!result) return;
     try {
-      await pinItem(token, "genie", "table", question.slice(0, 60) || "Genie result", {
+      await pinItem(token, "genie", "table", truncateTitle(question) || "Genie result", {
         columns: result.columns, rows: result.rows,
       });
       setPinned(true);
@@ -75,7 +76,7 @@ export default function GeniePage({ token, onResult, sessionExpired, onSessionEx
         await deletePinnedItem(token, chartPinId);
         setChartPinId(null);
       } else {
-        const { id } = await pinItem(token, "genie", "chart", question.slice(0, 60) || "Genie chart", {
+        const { id } = await pinItem(token, "genie", "chart", truncateTitle(question) || "Genie chart", {
           columns: result.columns, rows: result.rows,
         });
         setChartPinId(id);

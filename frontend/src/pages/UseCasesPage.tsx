@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  fetchUseCases, createUseCase, deleteUseCase, sendChatMessage,
+  fetchUseCases, createUseCase, deleteUseCase, runUseCase, sendChatMessage,
   UseCase, ApiError, GenieResult,
 } from "../lib/api";
 import ChatDataChart from "../components/ChatDataChart";
@@ -53,6 +53,10 @@ export default function UseCasesPage({ token, canCreate, onSessionExpired, onRes
   // case, so the sample question can be adjusted BEFORE it's saved as an
   // official preset, rather than only finding out it's a bad question
   // after it's already live for everyone.
+  // Captured from Preview's actual LLM-generated SQL — saved alongside
+  // the use case so Launch never needs the LLM again (see handleCreate
+  // and handleLaunchCached below).
+  const [previewSql, setPreviewSql] = useState<string | null>(null);
   const [previewRun, setPreviewRun] = useState<RunState>(EMPTY_RUN);
 
   // #1 — launching a use case runs it and shows the result on THIS page
@@ -74,12 +78,15 @@ export default function UseCasesPage({ token, canCreate, onSessionExpired, onRes
 
   const filtered = (cases ?? []).filter((c) => categoryFilter === "All" || c.category === categoryFilter);
 
-  // Shared runner for both Launch and Preview — identical backend call,
-  // identical result shape, only the target state setter differs.
-  async function runQuestion(question: string, setState: (r: RunState) => void) {
+  // Shared runner for both Launch (fallback, when a use case has no
+  // cached SQL yet) and Preview — identical backend call, identical
+  // result shape, only the target state setter differs. `onSql` lets
+  // Preview specifically capture the LLM-generated SQL to save.
+  async function runQuestion(question: string, setState: (r: RunState) => void, onSql?: (sql: string | null) => void) {
     setState({ ...EMPTY_RUN, question, loading: true });
     try {
       const res = await sendChatMessage(token, null, question);
+      onSql?.(res.blocked ? null : res.sql);
       if (res.blocked) {
         setState({
           question, loading: false, error: null, reply: null, chartData: null,
@@ -118,7 +125,51 @@ export default function UseCasesPage({ token, canCreate, onSessionExpired, onRes
 
   function handleLaunch(c: UseCase) {
     setLaunchedTitle(c.title);
-    runQuestion(c.sample_question, setLaunchRun);
+    if (c.has_cached_query) {
+      handleLaunchCached(c);
+    } else {
+      // No cached SQL yet (e.g. a use case created before this feature
+      // existed, or a purely conversational one with nothing to query)
+      // — fall back to the normal LLM-driven flow so it still works.
+      runQuestion(c.sample_question, setLaunchRun);
+    }
+  }
+
+  // The whole point: this makes ZERO LLM calls. It re-runs the exact
+  // SQL that was already written and validated once, back when this use
+  // case was previewed and saved — so it can't fail on an LLM provider
+  // outage or rate limit, and it's instant regardless of how many times
+  // or how many different people launch it.
+  async function handleLaunchCached(c: UseCase) {
+    setLaunchRun({ ...EMPTY_RUN, question: c.sample_question, loading: true });
+    try {
+      const res = await runUseCase(token, c.id);
+      setLaunchRun({
+        question: c.sample_question, loading: false, error: null, blocked: false, blockedEvents: null,
+        reply: `**Cached result** for _"${c.sample_question}"_ — this re-runs the saved query directly, no AI call needed.`,
+        chartData: { columns: res.columns, rows: res.rows },
+      });
+      onResult?.({
+        sql: res.sql,
+        summary: null,
+        columns: res.columns,
+        rows: res.rows,
+        row_count: res.rows.length,
+        conversation_id: "",
+        message_id: "",
+        guardrails: {
+          input_events: [],
+          llm_check: { ran: false, provider_used: null },
+          grounding: null,
+        },
+      });
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) onSessionExpired?.();
+      setLaunchRun({
+        ...EMPTY_RUN, question: c.sample_question,
+        error: e instanceof ApiError ? e.message : "Something went wrong running this use case.",
+      });
+    }
   }
 
   function handlePreview() {
@@ -127,7 +178,7 @@ export default function UseCasesPage({ token, canCreate, onSessionExpired, onRes
       return;
     }
     setFormError(null);
-    runQuestion(sampleQuestion, setPreviewRun);
+    runQuestion(sampleQuestion, setPreviewRun, setPreviewSql);
   }
 
   async function handleCreate() {
@@ -138,9 +189,12 @@ export default function UseCasesPage({ token, canCreate, onSessionExpired, onRes
     setSaving(true);
     setFormError(null);
     try {
-      await createUseCase(token, { title, description, category, sample_question: sampleQuestion });
+      await createUseCase(token, {
+        title, description, category, sample_question: sampleQuestion, generated_sql: previewSql,
+      });
       setTitle(""); setDescription(""); setCategory(""); setSampleQuestion("");
       setPreviewRun(EMPTY_RUN);
+      setPreviewSql(null);
       setShowForm(false);
       load();
     } catch (e) {
@@ -167,7 +221,7 @@ export default function UseCasesPage({ token, canCreate, onSessionExpired, onRes
       <div style={styles.heading}>
         <div>
           <h1 style={styles.h1}>Preset use cases</h1>
-          <p style={styles.sub}>Configured per company — this list is specific to your industry, not hardcoded.</p>
+          <p style={styles.sub}>Preset questions tailored to your company.</p>
         </div>
         <div style={styles.headingActions}>
           <select style={styles.filterSelect} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
@@ -218,7 +272,7 @@ export default function UseCasesPage({ token, canCreate, onSessionExpired, onRes
 
           {formError && <div style={styles.formError}>{formError}</div>}
           <div style={styles.formActions}>
-            <button style={styles.cancelBtn} onClick={() => { setShowForm(false); setPreviewRun(EMPTY_RUN); }}>Cancel</button>
+            <button style={styles.cancelBtn} onClick={() => { setShowForm(false); setPreviewRun(EMPTY_RUN); setPreviewSql(null); }}>Cancel</button>
             <button style={styles.saveBtn} onClick={handleCreate} disabled={saving}>{saving ? "Saving…" : "Save use case"}</button>
           </div>
         </div>
@@ -256,7 +310,10 @@ export default function UseCasesPage({ token, canCreate, onSessionExpired, onRes
             <h3 style={styles.title}>{c.title}</h3>
             <p style={styles.desc}>{c.description}</p>
             <div style={styles.footer}>
-              <span style={styles.category}>{c.category}</span>
+              <span style={styles.category}>
+                {c.category}
+                {c.has_cached_query && <span style={styles.cachedTag} title="Launches instantly from a saved query — no AI call">⚡</span>}
+              </span>
               <button style={styles.launchBtn} onClick={() => handleLaunch(c)} disabled={launchRun.loading}>
                 {launchRun.loading && launchedTitle === c.title ? "Running…" : "Launch"}
               </button>
@@ -339,7 +396,8 @@ const styles: Record<string, React.CSSProperties> = {
   title: { fontSize: 14.5, margin: "0 0 6px", paddingRight: 20 },
   desc: { fontSize: 12, color: "var(--ink-soft)", lineHeight: 1.55, margin: 0, flex: 1 },
   footer: { marginTop: 16, display: "flex", justifyContent: "space-between", alignItems: "center" },
-  category: { fontSize: 9.5, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: "var(--ink-soft)" },
+  category: { fontSize: 9.5, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: "var(--ink-soft)", display: "flex", alignItems: "center", gap: 5 },
+  cachedTag: { fontSize: 11, textTransform: "none" },
   launchBtn: { background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", color: "var(--ink)" },
   launchResultWrap: { marginTop: 24 },
   launchResultHeader: { fontSize: 12, fontWeight: 700, color: "var(--ink-soft)", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 },

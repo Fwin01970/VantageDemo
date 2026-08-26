@@ -7,6 +7,7 @@ import ConfirmDialog from "../components/ConfirmDialog";
 import ConversationHistoryPanel from "../components/ConversationHistoryPanel";
 import ChatDataChart from "../components/ChatDataChart";
 import MarkdownLite from "../components/MarkdownLite";
+import { truncateTitle } from "../lib/text";
 
 const SIDEBAR_VISIBLE_LIMIT = 6;
 
@@ -203,6 +204,20 @@ export default function ChatPage({ token, sessionExpired, onSessionExpired, pend
     }
   }
 
+  // The user's question, not the assistant's answer, makes a far better
+  // pin title — answers routinely open with boilerplate like "Based on
+  // company data for the current year in our records...", which reads
+  // as meaningless filler once shortened, whereas the question itself
+  // ("What's our loss ratio by product line?") is exactly what the
+  // pinned card is about. Falls back to the answer only if, for some
+  // reason, there's no preceding user message to pull from.
+  function titleFor(index: number): string {
+    for (let i = index - 1; i >= 0; i--) {
+      if (messages[i].role === "user") return truncateTitle(messages[i].content);
+    }
+    return truncateTitle(messages[index].content);
+  }
+
   async function handlePinText(index: number) {
     const m = messages[index];
     try {
@@ -210,7 +225,7 @@ export default function ChatPage({ token, sessionExpired, onSessionExpired, pend
         await deletePinnedItem(token, m.textPinId);
         setMessages((prev) => prev.map((msg, i) => (i === index ? { ...msg, textPinId: null } : msg)));
       } else {
-        const { id } = await pinItem(token, "ask_ai", "insight", m.content.slice(0, 60), { text: m.content });
+        const { id } = await pinItem(token, "ask_ai", "insight", titleFor(index), { text: m.content });
         setMessages((prev) => prev.map((msg, i) => (i === index ? { ...msg, textPinId: id } : msg)));
       }
     } catch {
@@ -226,7 +241,7 @@ export default function ChatPage({ token, sessionExpired, onSessionExpired, pend
         await deletePinnedItem(token, m.chartPinId);
         setMessages((prev) => prev.map((msg, i) => (i === index ? { ...msg, chartPinId: null } : msg)));
       } else {
-        const { id } = await pinItem(token, "ask_ai", "chart", m.content.slice(0, 60), {
+        const { id } = await pinItem(token, "ask_ai", "chart", titleFor(index), {
           columns: m.chartData.columns, rows: m.chartData.rows,
         });
         setMessages((prev) => prev.map((msg, i) => (i === index ? { ...msg, chartPinId: id } : msg)));

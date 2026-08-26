@@ -96,7 +96,7 @@ export default function AdminPage({ token, sessionExpired, onSessionExpired }: P
             value={companyName}
             disabled={sessionExpired}
             onChange={(e) => setCompanyName(e.target.value)}
-            placeholder="e.g. Northwind Healthcare (Demo)"
+            placeholder="e.g. Northwind Healthcare"
           />
           <label style={styles.label}>Industry</label>
           <select
@@ -150,7 +150,7 @@ export default function AdminPage({ token, sessionExpired, onSessionExpired }: P
             value={userEmail}
             disabled={sessionExpired}
             onChange={(e) => setUserEmail(e.target.value)}
-            placeholder="e.g. priya.nair@northwind.demo"
+            placeholder="e.g. priya.nair@northwind.com"
           />
           <button style={styles.btn} onClick={handleCreateUser} disabled={userBusy || sessionExpired}>
             {userBusy ? "Creating…" : "Create user"}

@@ -26,14 +26,39 @@ interface Props {
   data: ChatChartData;
 }
 
+// Number("1,323,713,528.63") is NaN — plain Number() chokes on thousands
+// separators, currency symbols, and surrounding whitespace, all of which
+// commonly show up in query results. Without stripping these, a column
+// like TotalPremium would silently fail the numeric check and get
+// swept into the label instead of charted as the metric it actually is
+// — exactly what produced a giant raw number inside an x-axis label.
+function parseNumeric(value: unknown): number {
+  if (typeof value === "number") return value;
+  const cleaned = String(value).trim().replace(/[,$%\s]/g, "");
+  return Number(cleaned);
+}
+
 function isNumeric(value: unknown): boolean {
   if (typeof value === "number") return Number.isFinite(value);
   if (typeof value !== "string" || value.trim() === "") return false;
-  return !Number.isNaN(Number(value));
+  return !Number.isNaN(parseNumeric(value));
 }
 
+// Common placeholder text for "no value here" — not just genuine
+// null/undefined/empty string. Query results routinely use "N/A", "-",
+// or "—" for a metric that doesn't apply to a particular row (e.g. a
+// ratio that couldn't be computed for one product line). Missing THIS
+// check meant a single "N/A" cell disqualified an entire otherwise-
+// numeric column from being charted as a metric — it fell into the
+// label instead, which is exactly how a huge unrelated number ended up
+// stuck onto the x-axis text.
+const MISSING_TOKENS = new Set(["n/a", "na", "-", "—", "null", "none", "nil"]);
+
 function isMissing(value: unknown): boolean {
-  return value === null || value === undefined || (typeof value === "string" && value.trim() === "");
+  if (value === null || value === undefined) return true;
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim().toLowerCase();
+  return trimmed === "" || MISSING_TOKENS.has(trimmed);
 }
 
 // ID/key columns (ClaimID, PolicyID, FactClaimID, customer_id, etc.) are
@@ -168,7 +193,7 @@ export default function ChatDataChart({ data }: Props) {
     const chartRows = rows.slice(0, 25).map((r) => {
       const label = labelIdxs.map((i) => formatDimensionValue(columns[i], r[i])).join(" ");
       const obj: Record<string, any> = { label };
-      for (const i of seriesIdxs) obj[columns[i]] = isMissing(r[i]) ? null : Number(r[i]);
+      for (const i of seriesIdxs) obj[columns[i]] = isMissing(r[i]) ? null : parseNumeric(r[i]);
       return obj;
     });
 
@@ -280,14 +305,14 @@ export default function ChatDataChart({ data }: Props) {
           ))}
         </div>
       ) : (
-        <ResponsiveContainer width="100%" height={260}>
+        <ResponsiveContainer width="100%" height={300}>
           {effectiveType === "column" ? (
             <BarChart data={built.chartRows} margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E8EDF3" />
-              <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#172033" }} />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#172033" }} interval={0} angle={-20} textAnchor="end" height={64} />
               <YAxis tick={{ fontSize: 12, fill: "#172033" }} width={64} tickFormatter={formatCompact} />
               <Tooltip formatter={formatFull} />
-              {built.seriesNames.length > 1 && <Legend />}
+              {built.seriesNames.length > 1 && <Legend wrapperStyle={{ paddingTop: 12 }} />}
               {built.seriesNames.map((name, i) => (
                 <Bar key={name} dataKey={name} fill={SERIES_COLORS[i % SERIES_COLORS.length]} radius={[3, 3, 0, 0]} />
               ))}
@@ -298,7 +323,7 @@ export default function ChatDataChart({ data }: Props) {
               <XAxis type="number" tick={{ fontSize: 12, fill: "#172033" }} tickFormatter={formatCompact} />
               <YAxis type="category" dataKey="label" tick={{ fontSize: 12, fill: "#172033" }} width={90} />
               <Tooltip formatter={formatFull} />
-              {built.seriesNames.length > 1 && <Legend />}
+              {built.seriesNames.length > 1 && <Legend wrapperStyle={{ paddingTop: 12 }} />}
               {built.seriesNames.map((name, i) => (
                 <Bar key={name} dataKey={name} fill={SERIES_COLORS[i % SERIES_COLORS.length]} radius={[0, 3, 3, 0]} />
               ))}
@@ -306,10 +331,10 @@ export default function ChatDataChart({ data }: Props) {
           ) : effectiveType === "line" ? (
             <LineChart data={built.chartRows} margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E8EDF3" />
-              <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#172033" }} />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#172033" }} interval={0} angle={-20} textAnchor="end" height={64} />
               <YAxis tick={{ fontSize: 12, fill: "#172033" }} width={64} tickFormatter={formatCompact} />
               <Tooltip formatter={formatFull} />
-              {built.seriesNames.length > 1 && <Legend />}
+              {built.seriesNames.length > 1 && <Legend wrapperStyle={{ paddingTop: 12 }} />}
               {built.seriesNames.map((name, i) => (
                 <Line key={name} type="monotone" dataKey={name} stroke={SERIES_COLORS[i % SERIES_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} />
               ))}
@@ -317,10 +342,10 @@ export default function ChatDataChart({ data }: Props) {
           ) : effectiveType === "area" ? (
             <AreaChart data={built.chartRows} margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E8EDF3" />
-              <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#172033" }} />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#172033" }} interval={0} angle={-20} textAnchor="end" height={64} />
               <YAxis tick={{ fontSize: 12, fill: "#172033" }} width={64} tickFormatter={formatCompact} />
               <Tooltip formatter={formatFull} />
-              {built.seriesNames.length > 1 && <Legend />}
+              {built.seriesNames.length > 1 && <Legend wrapperStyle={{ paddingTop: 12 }} />}
               {built.seriesNames.map((name, i) => (
                 <Area key={name} type="monotone" dataKey={name} stroke={SERIES_COLORS[i % SERIES_COLORS.length]} fill={SERIES_COLORS[i % SERIES_COLORS.length]} fillOpacity={0.25} strokeWidth={2} />
               ))}

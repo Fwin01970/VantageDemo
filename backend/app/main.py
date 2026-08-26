@@ -96,6 +96,7 @@ from app.routers.dashboard import router as dashboard_router
 from app.routers.schema_annotations import router as schema_annotations_router
 from app.routers.credentials import router as credentials_router
 from app.routers.governance import router as governance_router
+from app.routers.auth import router as auth_router
 
 app = FastAPI(title="Ryze Infinity — Phase 1 Skeleton")
 
@@ -120,6 +121,7 @@ app.include_router(dashboard_router)
 app.include_router(schema_annotations_router)
 app.include_router(credentials_router)
 app.include_router(governance_router)
+app.include_router(auth_router)
 
 
 @app.get("/health")
@@ -156,7 +158,7 @@ def list_demo_users(db: Session = Depends(get_db)):
     ]
 
 
-@app.post("/auth/login", response_model=LoginResponse)
+@app.post("/auth/demo-login", response_model=LoginResponse)
 def fake_login(body: LoginRequest, db: Session = Depends(get_db)):
     row = db.execute(
         text("SELECT * FROM resolve_login_by_user_id(:uid)"),
