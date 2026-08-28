@@ -22,7 +22,7 @@ from app.services.tenant_resolver import TenantContext, resolve_tenant_context
 # rather than a username/password form, which doesn't match how our login
 # actually works. This will be swapped for real Entra ID token validation
 # later, but the /docs "Authorize" experience stays the same either way.
-bearer_scheme = HTTPBearer()
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def verify_token(token: str) -> dict:
@@ -41,7 +41,7 @@ def verify_token(token: str) -> dict:
 
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ) -> TenantContext:
     """
@@ -49,6 +49,13 @@ def get_current_user(
     context from the database. Also sets the Postgres session variable that
     activates Row-Level Security for this request.
     """
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required. Sign in and send a Bearer token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     claims = verify_token(credentials.credentials)
     user_id = claims.get("sub")
     tenant_id = claims.get("tenant_id")
