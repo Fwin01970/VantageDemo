@@ -102,7 +102,9 @@ def _get_local_annotations(
     return table_notes, column_notes
 
 
-def get_schema_context_for_tenant(db: Session, tenant_id: str, user_id: str | None = None) -> str:
+def get_schema_context_for_tenant(
+    db: Session, tenant_id: str, user_id: str | None = None, session_token: str | None = None
+) -> str:
     """
     Returns a cached (or freshly built) plain-text description of the
     tenant's queryable tables/columns, including the business glossary
@@ -124,7 +126,11 @@ def get_schema_context_for_tenant(db: Session, tenant_id: str, user_id: str | No
     if cached and (time.time() - cached[0]) < _CACHE_TTL_SECONDS:
         return cached[1]
 
-    client = get_databricks_client_for_user(db, tenant_id, user_id) if user_id else get_databricks_client_for_tenant(db, tenant_id)
+    client = (
+        get_databricks_client_for_user(db, tenant_id, user_id, session_token)
+        if user_id
+        else get_databricks_client_for_tenant(db, tenant_id)
+    )
 
     if not client.catalog or not client.schema:
         raise SchemaNotAvailable(

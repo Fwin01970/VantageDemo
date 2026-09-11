@@ -1,15 +1,28 @@
 """
-Ryze Infinity — Backend Skeleton (Phase 1)
-============================================
+Ryze Infinity — Backend API
+============================
 Run with:  uvicorn app.main:app --reload
 Then open: http://127.0.0.1:8000/docs   (interactive API testing page)
 
-Endpoints in this skeleton:
-  GET  /health              - is the server alive
-  GET  /auth/demo-users     - list the fake demo users you can "log in as"
-  POST /auth/login          - fake login: give a user_id, get a token back
-  GET  /me                  - who am I, what tenant, what permissions
-  GET  /admin/tenants       - example RBAC-protected endpoint
+This backend now covers the full app, not just the original bootstrap
+skeleton. Endpoints are grouped by router (each shows as its own section
+in /docs, from each router's own `tags=[...]`):
+
+  /auth/...              - signup, email+password login, OAuth, demo login
+  /me                    - who am I, what tenant, what permissions
+  /chat/...              - Ask AI (conversational, with optional real-data tool use)
+  /data/...              - Genie (Databricks natural-language-to-SQL) + raw query/discovery
+  /use-cases/...         - saved preset questions with cached, re-runnable SQL
+  /dashboard/...         - pinned insights/tables/charts
+  /credentials/...       - per-user saved Databricks + LLM credentials
+  /governance/...        - guardrail activity feed + HITL review queue
+  /schema-annotations/...- human-written notes on tables/columns, shown to the AI
+  /admin/...             - platform-level: create new demo companies/users
+  /admin/tenants         - example RBAC-protected endpoint (legacy bootstrap route)
+  /audit/log             - this tenant's own audit trail
+
+See CREDENTIAL_MANAGEMENT_DESIGN.md and RYZE_INFINITY_EXPLAINED.md for the
+full walkthrough of how tenant isolation, guardrails, and governance work.
 """
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -98,7 +111,18 @@ from app.routers.credentials import router as credentials_router
 from app.routers.governance import router as governance_router
 from app.routers.auth import router as auth_router
 
-app = FastAPI(title="Ryze Infinity — Phase 1 Skeleton")
+app = FastAPI(
+    title="Ryze Infinity",
+    description=(
+        "Multi-tenant business analytics platform — ask plain-English questions "
+        "about your company's real data (Ask AI / Genie), backed by guardrails "
+        "(jailbreak/PII/fairness/off-topic detection + output grounding), "
+        "per-tenant schema isolation, role-based permissions, and a full audit "
+        "trail. See RYZE_INFINITY_EXPLAINED.md in the project root for a full "
+        "plain-language walkthrough of every endpoint below."
+    ),
+    version="1.0.0",
+)
 
 # The React frontend runs on a different address (localhost:5173) than
 # this backend (localhost:8000) — browsers block that kind of
@@ -171,10 +195,13 @@ def fake_login(body: LoginRequest, db: Session = Depends(get_db)):
     user_id = str(row["id"])
     tenant_id = str(row["tenant_id"])
 
-    # We now know which tenant this is — set that context BEFORE writing
-    # the audit row, since Row-Level Security requires it (same reasoning
-    # as the demo-users/login lookup functions above).
-    set_tenant_context(db, tenant_id)
+    # We now know which tenant AND which user this is — set BOTH before
+    # writing the audit row. Row-Level Security requires tenant_id here;
+    # user_id is included too for consistency with get_current_user()
+    # (see auth/dependencies.py) — leaving it unset in one place and not
+    # the other is exactly the kind of gap that silently broke personal
+    # credential lookups elsewhere in this app.
+    set_tenant_context(db, tenant_id, user_id)
     log_event(db, tenant_id=tenant_id, user_id=user_id, action="auth.login", details={})
 
     token = issue_fake_token(user_id=user_id, tenant_id=tenant_id)

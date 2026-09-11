@@ -41,6 +41,12 @@ def resolve_tenant_context(db: Session, user_id: str, tenant_id: str) -> Optiona
         # doesn't match the user's actual tenant — refuse either way.
         return None
 
+    if not user.is_active:
+        # A disabled user's existing JWT is still cryptographically valid
+        # until it expires — this is the check that actually revokes
+        # access immediately, without waiting for token expiry.
+        return None
+
     tenant = db.get(Tenant, tenant_id)
     if tenant is None or not tenant.is_active:
         return None

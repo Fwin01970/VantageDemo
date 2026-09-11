@@ -17,13 +17,14 @@ general-knowledge assistant with no tool offered, no special-casing
 required in this file.
 """
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.database import get_db
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, bearer_scheme
 from app.services.tenant_resolver import TenantContext
 from app.services.data_source_resolver import get_databricks_client_for_user, get_llm_override_for_user, DataSourceNotConfigured, SecretNotFound
 from app.services.schema_context import get_schema_context_for_tenant, SchemaNotAvailable
@@ -228,6 +229,7 @@ def send_message(
     body: ChatRequest,
     ctx: TenantContext = Depends(get_current_user),
     db: Session = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ):
     # IMPORTANT: we do NOT create the conversation row yet. A conversation
     # is only ever persisted once we know there's a real, guardrail-passed
@@ -332,7 +334,9 @@ def send_message(
     schema_context = ""
     if ctx.has_permission("data:query"):
         try:
-            schema_context = get_schema_context_for_tenant(db, ctx.tenant_id, ctx.user_id)
+            schema_context = get_schema_context_for_tenant(
+                db, ctx.tenant_id, ctx.user_id, credentials.credentials
+            )
             tool_available = True
         except (DataSourceNotConfigured, SecretNotFound, SchemaNotAvailable, DatabricksError):
             tool_available = False
@@ -363,7 +367,9 @@ def send_message(
             return f"Query blocked: {e}"
 
         try:
-            client = get_databricks_client_for_user(db, ctx.tenant_id, ctx.user_id)
+            client = get_databricks_client_for_user(
+                db, ctx.tenant_id, ctx.user_id, credentials.credentials
+            )
             result = client.execute_sql(sql)
         except (DataSourceNotConfigured, SecretNotFound, DatabricksError) as e:
             logger.warning("Ask AI query failed: %s", e)

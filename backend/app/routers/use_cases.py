@@ -16,12 +16,13 @@ repeatable query, not something that re-guesses new SQL (and re-risks
 hitting a rate limit or provider outage) every single time it's opened.
 """
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.database import get_db
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, bearer_scheme
 from app.services.tenant_resolver import TenantContext
 from app.services.data_source_resolver import get_databricks_client_for_user, DataSourceNotConfigured, SecretNotFound
 from app.services.databricks_client import DatabricksError
@@ -147,6 +148,7 @@ def run_use_case(
     use_case_id: str,
     ctx: TenantContext = Depends(get_current_user),
     db: Session = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ):
     """
     Re-runs a use case's ALREADY-VETTED, cached SQL directly against the
@@ -182,7 +184,9 @@ def run_use_case(
         raise HTTPException(status_code=400, detail=f"Saved query failed validation: {e}")
 
     try:
-        client = get_databricks_client_for_user(db, ctx.tenant_id, ctx.user_id)
+        client = get_databricks_client_for_user(
+            db, ctx.tenant_id, ctx.user_id, credentials.credentials
+        )
         result = client.execute_sql(sql)
     except (DataSourceNotConfigured, SecretNotFound) as e:
         raise HTTPException(status_code=400, detail=str(e))

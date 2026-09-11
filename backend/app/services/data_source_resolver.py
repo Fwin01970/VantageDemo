@@ -6,11 +6,10 @@ builds a ready-to-use client for it — automatically, based on who's
 logged in. No one has to pick a company or a workspace; it's resolved
 from the database, the same way the tenant/role/permissions already are.
 
-The actual secret (the Databricks token) is NEVER stored in the
-database — only a `secret_ref`, a pointer to where the real value lives
-(right now, an environment variable name; later, a proper secrets
-manager). This function is the one place that turns a pointer into a
-usable client.
+The actual secret (the Databricks token) is NEVER stored in plaintext in
+the database. Persisted credentials use an opaque `secret_ref` resolved
+by the configured secret store; session-only credentials stay in process
+memory for the authenticated session.
 """
 import os
 from sqlalchemy.orm import Session
@@ -18,6 +17,7 @@ from sqlalchemy import text
 
 from app.services.databricks_client import DatabricksClient
 from app.services.local_gold_client import LocalGoldClient
+from app.services.credential_session_cache import get_session_credentials
 
 
 class DataSourceNotConfigured(Exception):
@@ -71,13 +71,17 @@ def get_databricks_client_for_tenant(db: Session, tenant_id: str) -> "Databricks
     secret_ref = row["secret_ref"]
 
     if not secret_ref:
-        raise SecretNotFound("This connection has no secret_ref configured.")
+        raise DataSourceNotConfigured(
+            "No shared Databricks credential is configured. Add your Databricks "
+            "credentials in the Credentials tab."
+        )
 
     token = os.getenv(secret_ref)
     if not token:
-        raise SecretNotFound(
-            f"Expected a secret in the environment variable '{secret_ref}', "
-            f"but it isn't set. Check backend/.env."
+        raise DataSourceNotConfigured(
+            "No shared Databricks credential is configured. Add your Databricks "
+            "credentials in the Credentials tab, then choose whether to save "
+            "them permanently or use them for this session only."
         )
 
     missing = [k for k in ("host", "warehouse_id") if not config.get(k)]
@@ -96,7 +100,9 @@ def get_databricks_client_for_tenant(db: Session, tenant_id: str) -> "Databricks
     )
 
 
-def get_databricks_client_for_user(db: Session, tenant_id: str, user_id: str) -> "DatabricksClient | LocalGoldClient":
+def get_databricks_client_for_user(
+    db: Session, tenant_id: str, user_id: str, session_token: str | None = None
+) -> "DatabricksClient | LocalGoldClient":
     """
     NEW — see CREDENTIAL_MANAGEMENT_DESIGN.md. Checks whether THIS
     SPECIFIC USER has configured their own personal Databricks
@@ -106,6 +112,18 @@ def get_databricks_client_for_user(db: Session, tenant_id: str, user_id: str) ->
     identically to before this feature existed. Nothing breaks for
     anyone who never touches the new settings page.
     """
+    if session_token:
+        session_creds = get_session_credentials(session_token)
+        if session_creds and session_creds.get("databricks_host") and session_creds.get("databricks_pat"):
+            return DatabricksClient(
+                host=session_creds["databricks_host"],
+                token=session_creds["databricks_pat"],
+                warehouse_id=session_creds.get("databricks_warehouse_id", ""),
+                genie_space_id=session_creds.get("databricks_genie_space_id"),
+                catalog=session_creds.get("databricks_catalog"),
+                schema=session_creds.get("databricks_schema"),
+            )
+
     row = db.execute(
         text(
             """

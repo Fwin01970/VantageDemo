@@ -73,12 +73,7 @@ export default function AdminPage({ token, sessionExpired, onSessionExpired }: P
   return (
     <div style={styles.page}>
       <div style={styles.noticeCard}>
-        <strong>Platform Admin — testing convenience only.</strong> Creating a
-        brand-new company is normally a Platform Super Admin action, separate
-        from a Tenant Admin managing their own company. This screen is gated
-        by a distinct <code style={styles.code}>platform:manage</code>{" "}
-        permission for exactly that reason — it's here to make multi-industry
-        testing easy, not a preview of the real product's admin experience.
+        <strong>Platform Admin — testing convenience only.</strong>
       </div>
 
       {sessionExpired && (
@@ -96,7 +91,7 @@ export default function AdminPage({ token, sessionExpired, onSessionExpired }: P
             value={companyName}
             disabled={sessionExpired}
             onChange={(e) => setCompanyName(e.target.value)}
-            placeholder="e.g. Northwind Healthcare"
+            placeholder="Enter your company name"
           />
           <label style={styles.label}>Industry</label>
           <select
@@ -142,7 +137,7 @@ export default function AdminPage({ token, sessionExpired, onSessionExpired }: P
             value={userName}
             disabled={sessionExpired}
             onChange={(e) => setUserName(e.target.value)}
-            placeholder="e.g. Priya Nair"
+            placeholder="Enter User's display name"
           />
           <label style={styles.label}>Email</label>
           <input
@@ -150,20 +145,18 @@ export default function AdminPage({ token, sessionExpired, onSessionExpired }: P
             value={userEmail}
             disabled={sessionExpired}
             onChange={(e) => setUserEmail(e.target.value)}
-            placeholder="e.g. priya.nair@northwind.com"
+            placeholder="Enter User's email address"
           />
           <button style={styles.btn} onClick={handleCreateUser} disabled={userBusy || sessionExpired}>
             {userBusy ? "Creating…" : "Create user"}
           </button>
-          <div style={styles.hint}>
-            New users get the company's default "Admin" role automatically.
-          </div>
+          
           {userMsg && <div style={styles.msg}>{userMsg}</div>}
         </section>
       </div>
 
       <div style={styles.companyList}>
-        <div style={styles.cardTitle}>Companies on this platform</div>
+        <div style={styles.cardTitle}>Client's on this platform</div>
         {loadError && <div style={styles.msg}>{loadError}</div>}
         {companies.map((c) => (
           <div key={c.id} style={styles.companyRow}>

@@ -1,9 +1,9 @@
 -- ============================================================================
 -- Per-tenant PostgreSQL application schemas
 -- ============================================================================
--- Keep identity, authentication, RBAC, credentials, data-source metadata,
--- and centralized audit data in public. Move tenant application data into a
--- schema derived from the immutable tenant UUID. The backend sets search_path
+-- Keep identity, authentication, RBAC, data-source metadata, and centralized
+-- audit data in public. Move tenant application data and user credentials into
+-- a schema derived from the immutable tenant UUID. The backend sets search_path
 -- to "tenant_<uuid>" followed by public after authentication.
 --
 -- Run after the existing schema/migration files using the ryze_app role's
@@ -90,6 +90,43 @@ CREATE TABLE IF NOT EXISTS tenant_template.schema_annotations (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS tenant_template.user_credentials (
+    id                          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id                   UUID NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
+    user_id                     UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    databricks_host             TEXT,
+    databricks_warehouse_id     TEXT,
+    databricks_genie_space_id   TEXT,
+    databricks_catalog          TEXT,
+    databricks_schema           TEXT,
+    databricks_pat_secret_ref   TEXT,
+    llm_provider                TEXT,
+    llm_api_key_secret_ref      TEXT,
+    last_validated_at           TIMESTAMPTZ,
+    last_validation_ok          BOOLEAN,
+    created_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tenant_template_user_credentials_user
+    ON tenant_template.user_credentials (user_id);
+
+ALTER TABLE tenant_template.user_credentials ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS user_owns_credentials ON tenant_template.user_credentials;
+CREATE POLICY user_owns_credentials ON tenant_template.user_credentials
+    USING (
+        tenant_id = public.current_tenant_id_safe()
+        AND user_id = public.current_user_id_safe()
+    );
+
+CREATE TABLE IF NOT EXISTS tenant_template.local_secrets (
+    secret_ref   TEXT PRIMARY KEY,
+    ciphertext   TEXT NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE OR REPLACE FUNCTION public.provision_tenant_application_schema(p_tenant_id UUID)
 RETURNS void
 LANGUAGE plpgsql
@@ -111,6 +148,11 @@ BEGIN
     EXECUTE format('CREATE TABLE IF NOT EXISTS %I.chat_messages (LIKE tenant_template.chat_messages INCLUDING ALL)', v_schema);
     EXECUTE format('CREATE TABLE IF NOT EXISTS %I.governance_reviews (LIKE tenant_template.governance_reviews INCLUDING ALL)', v_schema);
     EXECUTE format('CREATE TABLE IF NOT EXISTS %I.schema_annotations (LIKE tenant_template.schema_annotations INCLUDING ALL)', v_schema);
+    EXECUTE format('CREATE TABLE IF NOT EXISTS %I.user_credentials (LIKE tenant_template.user_credentials INCLUDING ALL)', v_schema);
+    EXECUTE format('CREATE TABLE IF NOT EXISTS %I.local_secrets (LIKE tenant_template.local_secrets INCLUDING ALL)', v_schema);
+    EXECUTE format('ALTER TABLE %I.user_credentials ENABLE ROW LEVEL SECURITY', v_schema);
+    EXECUTE format('DROP POLICY IF EXISTS user_owns_credentials ON %I.user_credentials', v_schema);
+    EXECUTE format('CREATE POLICY user_owns_credentials ON %I.user_credentials USING (tenant_id = public.current_tenant_id_safe() AND user_id = public.current_user_id_safe())', v_schema);
     EXECUTE format('GRANT USAGE ON SCHEMA %I TO ryze_app', v_schema);
     EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I TO ryze_app', v_schema);
 END;
@@ -195,6 +237,18 @@ BEGIN
                 t.schema_name
             ) USING t.id;
         END IF;
+        IF to_regclass('public.user_credentials') IS NOT NULL THEN
+            EXECUTE format(
+                'INSERT INTO %I.user_credentials SELECT * FROM public.user_credentials WHERE tenant_id = $1 ON CONFLICT (id) DO NOTHING',
+                t.schema_name
+            ) USING t.id;
+        END IF;
+        IF to_regclass('public.local_secrets') IS NOT NULL THEN
+            EXECUTE format(
+                'INSERT INTO %I.local_secrets SELECT s.* FROM public.local_secrets s WHERE EXISTS (SELECT 1 FROM public.user_credentials c WHERE c.tenant_id = $1 AND (c.databricks_pat_secret_ref = s.secret_ref OR c.llm_api_key_secret_ref = s.secret_ref)) ON CONFLICT (secret_ref) DO NOTHING',
+                t.schema_name
+            ) USING t.id;
+        END IF;
     END LOOP;
 END;
 $$;
@@ -202,3 +256,7 @@ $$;
 GRANT EXECUTE ON FUNCTION public.provision_tenant_application_schema(UUID) TO ryze_app;
 GRANT USAGE ON SCHEMA tenant_template TO ryze_app;
 REVOKE ALL ON SCHEMA tenant_template FROM PUBLIC;
+
+-- After migration, the application role must not be able to bypass tenant
+-- routing by reading the legacy shared credential tables directly.
+REVOKE ALL ON TABLE public.user_credentials, public.local_secrets FROM ryze_app;

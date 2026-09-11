@@ -19,9 +19,9 @@
 
   /* Tenant identity colors — unchanged; each company still gets a
      consistent, distinct accent regardless of light/dark mode. */
-  --tenant-1: #0f766e;
-  --tenant-2: #7c4a2d;
-  --tenant-3: #4338ca;
+  --tenant-1: #1aefdd;
+  --tenant-2: #e3ac8c;
+  --tenant-3: #7ecdf0;
 
   --radius: 10px;
   --mono: "IBM Plex Mono", ui-monospace, monospace;

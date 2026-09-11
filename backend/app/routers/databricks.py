@@ -21,11 +21,13 @@ level of access to their company's data — permission granularity is a
 later phase.
 """
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from app.database import get_db
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, bearer_scheme
 from app.services.rbac import require_permission
 from app.services.tenant_resolver import TenantContext
 from app.services.databricks_client import DatabricksClient, DatabricksError
@@ -49,9 +51,12 @@ guardrails = GuardrailEngine()
 def get_client(
     ctx: TenantContext = Depends(get_current_user),
     db: Session = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ) -> DatabricksClient:
     try:
-        return get_databricks_client_for_user(db, ctx.tenant_id, ctx.user_id)
+        return get_databricks_client_for_user(
+            db, ctx.tenant_id, ctx.user_id, credentials.credentials
+        )
     except DataSourceNotConfigured as e:
         raise HTTPException(status_code=404, detail=str(e))
     except SecretNotFound as e:
@@ -99,6 +104,80 @@ def discover_tables(
         return client.list_tables(catalog, schema)
     except DatabricksError as e:
         raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.get("/genie-config")
+def get_genie_config(
+    ctx: TenantContext = Depends(require_permission("genie:access")),
+    db: Session = Depends(get_db),
+):
+    """
+    Returns this tenant's (or this specific user's, if they have a
+    personal override) query-parameter dropdowns, question template, and
+    suggested questions — all configured by a Platform Super Admin via
+    /admin/tenants/{tenant_id}/genie-config, never hardcoded in the
+    frontend. Different tenants can have completely different vocabulary
+    here (an insurance tenant might have "Claims"/"Loss Ratio"; a retail
+    tenant might have "Store"/"Category"/"Season" and no concept of
+    claims at all).
+
+    These tables live in the TENANT'S OWN PRIVATE SCHEMA (same mechanism
+    as user_credentials — see move_genie_config_to_tenant_schema.sql),
+    not a shared public table. get_current_user() already set this
+    session's search_path to the correct tenant, so the unqualified
+    table names below automatically resolve to the right tenant's data —
+    no tenant_id filter needed here at all; RLS still double-checks it
+    underneath as defense in depth, same as everywhere else in the app.
+
+    Resolution follows the SAME personal-overrides-tenant-default pattern
+    already used for Databricks/LLM credentials: try this user's own
+    rows first, fall back to the tenant-wide default (user_id IS NULL)
+    only if the user has no personal override configured.
+    """
+    fields = db.execute(
+        text(
+            "SELECT field_name, options, display_order FROM genie_query_parameter_fields "
+            "WHERE user_id = :user_id ORDER BY display_order"
+        ),
+        {"user_id": ctx.user_id},
+    ).mappings().all()
+    if not fields:
+        fields = db.execute(
+            text(
+                "SELECT field_name, options, display_order FROM genie_query_parameter_fields "
+                "WHERE user_id IS NULL ORDER BY display_order"
+            )
+        ).mappings().all()
+
+    template_row = db.execute(
+        text("SELECT template FROM genie_question_templates WHERE user_id = :user_id"),
+        {"user_id": ctx.user_id},
+    ).mappings().first()
+    if template_row is None:
+        template_row = db.execute(
+            text("SELECT template FROM genie_question_templates WHERE user_id IS NULL")
+        ).mappings().first()
+
+    suggestions = db.execute(
+        text(
+            "SELECT question_text FROM genie_suggested_questions "
+            "WHERE user_id = :user_id ORDER BY display_order"
+        ),
+        {"user_id": ctx.user_id},
+    ).mappings().all()
+    if not suggestions:
+        suggestions = db.execute(
+            text(
+                "SELECT question_text FROM genie_suggested_questions "
+                "WHERE user_id IS NULL ORDER BY display_order"
+            )
+        ).mappings().all()
+
+    return {
+        "fields": [{"field_name": f["field_name"], "options": f["options"]} for f in fields],
+        "template": template_row["template"] if template_row else None,
+        "suggested_questions": [s["question_text"] for s in suggestions],
+    }
 
 
 class RawQuery(BaseModel):

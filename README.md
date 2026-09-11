@@ -157,17 +157,18 @@ you can try every endpoint from your browser without writing any code.
 ## Tenant-specific PostgreSQL schemas
 
 The application uses a hybrid tenant layout. Shared identity, authentication,
-RBAC, credentials, data-source metadata, and centralized audit tables remain in
-`public` so login can find the user before the tenant schema is known. Tenant
-application data (`use_cases`, conversations/messages, dashboard pins,
-governance reviews, and schema annotations) is stored in a separate schema for
-each tenant, named from its UUID, such as `tenant_abc123...`.
+RBAC, data-source metadata, and centralized audit tables remain in `public` so
+login can find the user before the tenant schema is known. Tenant application
+data and per-user credentials (`user_credentials` plus encrypted
+`local_secrets`) are stored in a separate schema for each tenant, named from
+its UUID, such as `tenant_abc123...`.
 
 After applying the existing database scripts, run
 `database/tenant_application_schemas.sql` with the database owner/admin
 connection. It adds the trusted schema mapping, creates schemas for existing
-tenants, copies existing application rows, and provisions the same tables
-automatically when a new tenant is created.
+tenants, copies existing application and credential rows, and provisions the
+same tables automatically when a new tenant is created. It also revokes the
+restricted app role's access to the legacy public credential tables.
 
 On an authenticated request, the backend verifies the user and tenant using
 the shared `public` tables, then sets the connection search path to the

@@ -1,5 +1,8 @@
-import { useState } from "react";
-import { askGenie, GenieResult, ApiError, GuardrailEvent, pinItem, deletePinnedItem } from "../lib/api";
+import { useEffect, useState } from "react";
+import {
+  askGenie, GenieResult, ApiError, GuardrailEvent, pinItem, deletePinnedItem,
+  fetchGenieConfig, GenieConfig,
+} from "../lib/api";
 import ChatDataChart from "../components/ChatDataChart";
 import MarkdownLite from "../components/MarkdownLite";
 import { truncateTitle } from "../lib/text";
@@ -11,9 +14,24 @@ interface Props {
   onSessionExpired: () => void;
 }
 
-const PRODUCT_LINES = ["Motor", "Property", "General Liability", "Business Interruption"];
-const REGIONS = ["Midwest", "Northeast", "South", "West"];
-const FOCUS_AREAS = ["Risk", "Trend", "Forecast", "Anomalies"];
+// No hardcoded product lines, regions, or "claims and loss ratio" wording
+// here anymore — every bit of that is domain-specific vocabulary that a
+// Platform Super Admin configures per tenant (Master Admin → Genie
+// Config), since a retail or banking tenant has no concept of "claims"
+// at all. This component just renders whatever fields/template/
+// suggestions the backend hands it for the logged-in user's tenant.
+
+// Fills a template like "Show {Product line} in {Region}" with the
+// currently selected value for each field — {Field Name} placeholders
+// come directly from the admin-configured field_name values, so this
+// works for ANY domain's vocabulary without this component knowing what
+// any of the fields mean.
+function fillTemplate(template: string, values: Record<string, string>): string {
+  return template.replace(/\{([^}]+)\}/g, (match, fieldName) => {
+    const trimmed = fieldName.trim();
+    return values[trimmed] ?? match;
+  });
+}
 
 export default function GeniePage({ token, onResult, sessionExpired, onSessionExpired }: Props) {
   const [question, setQuestion] = useState("");
@@ -23,9 +41,40 @@ export default function GeniePage({ token, onResult, sessionExpired, onSessionEx
   const [error, setError] = useState<string | null>(null);
   const [pinned, setPinned] = useState(false);
   const [chartPinId, setChartPinId] = useState<string | null>(null);
-  const [productLine, setProductLine] = useState(PRODUCT_LINES[0]);
-  const [region, setRegion] = useState(REGIONS[0]);
-  const [focus, setFocus] = useState(FOCUS_AREAS[0]);
+
+  const [config, setConfig] = useState<GenieConfig | null>(null);
+  const [configLoading, setConfigLoading] = useState(true);
+  const [paramValues, setParamValues] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    setConfigLoading(true);
+    fetchGenieConfig(token)
+      .then((cfg) => {
+        if (cancelled) return;
+        setConfig(cfg);
+        // Default every dropdown to its first option, same as the old
+        // hardcoded version defaulted to PRODUCT_LINES[0] etc. — just
+        // driven by whatever fields this tenant actually has now.
+        const defaults: Record<string, string> = {};
+        for (const f of cfg.fields) {
+          if (f.options.length > 0) defaults[f.field_name] = f.options[0];
+        }
+        setParamValues(defaults);
+      })
+      .catch(() => {
+        // Non-critical: Genie itself still works with a manually typed
+        // question even if the config fetch fails — just no dropdowns
+        // or suggestions to help fill it in.
+        if (!cancelled) setConfig({ fields: [], template: null, suggested_questions: [] });
+      })
+      .finally(() => {
+        if (!cancelled) setConfigLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   async function handleAsk(overrideQuestion?: string) {
     const q = overrideQuestion ?? question;
@@ -54,7 +103,8 @@ export default function GeniePage({ token, onResult, sessionExpired, onSessionEx
   }
 
   function applyParams() {
-    setQuestion(`Show total claims and loss ratio for ${productLine} ${focus.toLowerCase()} in the ${region} region`);
+    if (!config?.template) return;
+    setQuestion(fillTemplate(config.template, paramValues));
   }
 
   async function handlePin() {
@@ -86,23 +136,53 @@ export default function GeniePage({ token, onResult, sessionExpired, onSessionEx
     }
   }
 
+  const hasFields = !configLoading && (config?.fields.length ?? 0) > 0;
+  const hasSuggestions = !configLoading && (config?.suggested_questions.length ?? 0) > 0;
+
   return (
     <div className="rz-two-col" style={styles.pageWithSidebar}>
       <aside className="rz-col-left rz-card-col" style={styles.sidebar}>
         <div style={styles.sideLabel}>Query Parameters</div>
-        <label style={styles.fieldLabel}>Product line</label>
-        <select style={styles.select} value={productLine} onChange={(e) => setProductLine(e.target.value)}>
-          {PRODUCT_LINES.map((p) => <option key={p}>{p}</option>)}
-        </select>
-        <label style={styles.fieldLabel}>Region</label>
-        <select style={styles.select} value={region} onChange={(e) => setRegion(e.target.value)}>
-          {REGIONS.map((r) => <option key={r}>{r}</option>)}
-        </select>
-        <label style={styles.fieldLabel}>Analysis focus</label>
-        <select style={styles.select} value={focus} onChange={(e) => setFocus(e.target.value)}>
-          {FOCUS_AREAS.map((f) => <option key={f}>{f}</option>)}
-        </select>
-        <button style={styles.applyBtn} onClick={applyParams}>Apply to question</button>
+        {configLoading && <div style={styles.configNote}>Loading…</div>}
+        {!configLoading && !hasFields && (
+          <div style={styles.configNote}>
+            No query parameters have been configured for your organization yet.
+            An administrator can set these up from Master Admin.
+          </div>
+        )}
+        {config?.fields.map((f) => (
+          <div key={f.field_name}>
+            <label style={styles.fieldLabel}>{f.field_name}</label>
+            <select
+              style={styles.select}
+              value={paramValues[f.field_name] ?? ""}
+              onChange={(e) => setParamValues((prev) => ({ ...prev, [f.field_name]: e.target.value }))}
+            >
+              {f.options.map((o) => <option key={o}>{o}</option>)}
+            </select>
+          </div>
+        ))}
+        {hasFields && config?.template && (
+          <button style={styles.applyBtn} onClick={applyParams}>Apply to question</button>
+        )}
+
+        {hasSuggestions && (
+          <>
+            <div style={{ ...styles.sideLabel, marginTop: 28 }}>Suggested Questions</div>
+            <div style={styles.suggestionList}>
+              {config!.suggested_questions.map((s, i) => (
+                <button
+                  key={i}
+                  style={styles.suggestionBtn}
+                  onClick={() => handleAsk(s)}
+                  disabled={loading || sessionExpired}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </aside>
 
       <div className="rz-col-main" style={styles.page}>
@@ -114,7 +194,7 @@ export default function GeniePage({ token, onResult, sessionExpired, onSessionEx
           <input
             id="question"
             style={styles.input}
-            placeholder="e.g. Show me the top 5 claims by amount"
+            placeholder={config?.suggested_questions[0] ? `e.g. ${config.suggested_questions[0]}` : "Type your question…"}
             value={question}
             disabled={sessionExpired}
             onChange={(e) => setQuestion(e.target.value)}
@@ -190,6 +270,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 11.5, fontFamily: "var(--mono)", letterSpacing: 0.5, textTransform: "uppercase",
     color: "var(--ink-soft)", marginBottom: 14,
   },
+  configNote: { fontSize: 12.5, color: "var(--ink-soft)", lineHeight: 1.5 },
   fieldLabel: { display: "block", fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 6, marginTop: 14 },
   select: {
     width: "100%", padding: "9px 10px", fontSize: 13.5, border: "1px solid var(--line)",
@@ -198,6 +279,11 @@ const styles: Record<string, React.CSSProperties> = {
   applyBtn: {
     width: "100%", marginTop: 20, padding: "10px 0", background: "var(--primary)", color: "white",
     border: "none", borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: "pointer",
+  },
+  suggestionList: { display: "flex", flexDirection: "column", gap: 6 },
+  suggestionBtn: {
+    textAlign: "left", fontSize: 12.5, padding: "8px 10px", border: "1px solid var(--line)",
+    borderRadius: 6, background: "var(--surface)", color: "var(--ink)", cursor: "pointer",
   },
   // overflowY: "auto" is the piece that was missing — min-height:0 (from
   // the .rz-col-main CSS class) lets this pane shrink to fit, but without

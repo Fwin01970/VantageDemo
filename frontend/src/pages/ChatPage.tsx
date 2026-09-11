@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import {
   sendChatMessage, fetchConversations, fetchConversationMessages, fetchUseCases, pinItem, deletePinnedItem, deleteConversation,
-  ApiError, GuardrailEvent, ConversationSummary, UseCase, ChatChartData, GenieResult,
+  ApiError, GuardrailEvent, ConversationSummary, UseCase, ChatChartData, fetchGenieConfig, GenieConfig ,GenieResult,
 } from "../lib/api";
 import ConfirmDialog from "../components/ConfirmDialog";
 import ConversationHistoryPanel from "../components/ConversationHistoryPanel";
@@ -38,9 +38,18 @@ interface DisplayMessage {
   chartPinId?: string | null;
 }
 
-const PRODUCT_LINES = ["Motor", "Property", "General Liability", "Business Interruption"];
-const REGIONS = ["Midwest", "Northeast", "South", "West"];
-const FOCUS_AREAS = ["Risk", "Trend", "Forecast", "Anomalies"];
+function fillTemplate(
+  template: string,
+  values: Record<string, string>
+): string {
+  return template.replace(
+    /\{([^}]+)\}/g,
+    (match, fieldName) => {
+      const trimmed = fieldName.trim();
+      return values[trimmed] ?? match;
+    }
+  );
+}
 
 function formatRelativeTime(iso: string): string {
   const date = new Date(iso);
@@ -79,12 +88,12 @@ export default function ChatPage({ token, sessionExpired, onSessionExpired, pend
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [productLine, setProductLine] = useState(PRODUCT_LINES[0]);
-  const [region, setRegion] = useState(REGIONS[0]);
-  const [focus, setFocus] = useState(FOCUS_AREAS[0]);
+  
   const [historyOpen, setHistoryOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
-
+  const [config, setConfig] =  useState<GenieConfig | null>(null);
+  const [configLoading, setConfigLoading] =  useState(true);
+  const [paramValues, setParamValues] =  useState<Record<string, string>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
 
   function refreshConversations() {
@@ -95,6 +104,47 @@ export default function ChatPage({ token, sessionExpired, onSessionExpired, pend
     refreshConversations();
     fetchUseCases(token).then(setUseCases).catch(() => {});
   }, [token]);
+
+  useEffect(() => {
+  let cancelled = false;
+
+  setConfigLoading(true);
+
+  fetchGenieConfig(token)
+    .then((cfg) => {
+      if (cancelled) return;
+
+      setConfig(cfg);
+
+      const defaults: Record<string, string> = {};
+
+      for (const f of cfg.fields) {
+        if (f.options.length > 0) {
+          defaults[f.field_name] = f.options[0];
+        }
+      }
+
+      setParamValues(defaults);
+    })
+    .catch(() => {
+      if (!cancelled) {
+        setConfig({
+          fields: [],
+          template: null,
+          suggested_questions: [],
+        });
+      }
+    })
+    .finally(() => {
+      if (!cancelled) {
+        setConfigLoading(false);
+      }
+    });
+
+  return () => {
+    cancelled = true;
+  };
+}, [token]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -252,10 +302,18 @@ export default function ChatPage({ token, sessionExpired, onSessionExpired, pend
   }
 
   function runAnalysis() {
-    send(`Analyze ${productLine} insurance ${focus.toLowerCase()} in the ${region} region.`);
-  }
+  if (!config?.template) return;
 
-  const suggestions = useCases.slice(0, 4).map((u) => u.sample_question);
+  send(
+    fillTemplate(
+      config.template,
+      paramValues
+    )
+  );
+}
+``
+
+  const suggestions =  config?.suggested_questions ?? [];
 
   return (
     <div className="rz-three-col" style={styles.page}>
@@ -399,28 +457,55 @@ export default function ChatPage({ token, sessionExpired, onSessionExpired, pend
 
       <aside className="rz-col-right rz-card-col" style={styles.rightPanel}>
         <div style={styles.sideLabel}>Query Parameters</div>
-        <label style={styles.fieldLabel}>Product line</label>
-        <select style={styles.select} value={productLine} onChange={(e) => setProductLine(e.target.value)}>
-          {PRODUCT_LINES.map((p) => <option key={p}>{p}</option>)}
-        </select>
-        <label style={styles.fieldLabel}>Region</label>
-        <select style={styles.select} value={region} onChange={(e) => setRegion(e.target.value)}>
-          {REGIONS.map((r) => <option key={r}>{r}</option>)}
-        </select>
-        <label style={styles.fieldLabel}>Analysis focus</label>
-        <select style={styles.select} value={focus} onChange={(e) => setFocus(e.target.value)}>
-          {FOCUS_AREAS.map((f) => <option key={f}>{f}</option>)}
-        </select>
-        <button style={styles.runBtn} onClick={runAnalysis} disabled={loading || sessionExpired}>▶ Run analysis</button>
+        {configLoading && <div style={styles.configNote}>Loading…</div>}
+        {!configLoading && !config?.fields.length && (
+          <div style={styles.configNote}>
+            No query parameters have been configured for your organization yet.
+            An administrator can set these up from Master Admin.
+          </div>
+        )}
+
+        {config?.fields.map((f) => (
+          <div key={f.field_name}>
+            <label style={styles.fieldLabel}>{f.field_name}</label>
+            <select
+              style={styles.select}
+              value={paramValues[f.field_name] ?? ""}
+              onChange={(e) =>
+                setParamValues((prev) => ({
+                  ...prev,
+                  [f.field_name]: e.target.value,
+                }))
+              }
+            >
+              {f.options.map((o) => (
+                <option key={o}>{o}</option>
+              ))}
+            </select>
+          </div>
+        ))}
+
+        {config?.template && (
+          <button style={styles.runBtn} onClick={runAnalysis} disabled={loading || sessionExpired}>
+            ▶ Run analysis
+          </button>
+        )}
 
         {suggestions.length > 0 && (
           <>
-            <div style={{ ...styles.sideLabel, marginTop: 24 }}>Suggested questions</div>
-            {suggestions.map((s, i) => (
-              <button key={i} style={styles.suggestionBtn} onClick={() => send(s)} disabled={loading || sessionExpired}>
-                {s}
-              </button>
-            ))}
+            <div style={{ ...styles.sideLabel, marginTop: 28 }}>Suggested Questions</div>
+            <div style={styles.suggestionList}>
+              {suggestions.map((s, i) => (
+                <button
+                  key={i}
+                  style={styles.suggestionBtn}
+                  onClick={() => send(s)}
+                  disabled={loading || sessionExpired}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
           </>
         )}
       </aside>

@@ -98,6 +98,22 @@ class GuardrailEngine:
     def detect_fairness_violation(self, text: str) -> bool:
         return any(p.search(text) for p in FAIRNESS_PATTERNS)
 
+    @staticmethod
+    def _figure_tolerance(numeric_str: str) -> float:
+        """
+        Half of the smallest displayed decimal place in `numeric_str`, so a
+        narrative that rounds a real source value for readability (e.g.
+        "59.97" summarizing a raw "59.970070") still counts as grounded
+        instead of failing on floating-point precision alone. A figure
+        with 2 decimal digits is checked within 0.005; a whole number is
+        checked within 0.5; and so on.
+        """
+        if "." in numeric_str:
+            decimals = len(numeric_str.split(".", 1)[1])
+        else:
+            decimals = 0
+        return 0.5 * (10 ** -decimals)
+
     def check_grounding(self, response_text: str, source_rows: list[list]) -> dict:
         """
         Checks that numeric figures mentioned in the AI's summary actually
@@ -105,11 +121,17 @@ class GuardrailEngine:
         invented. `source_rows` here is a list of row-lists (as returned
         by DatabricksClient), not list-of-dicts — flattened before
         comparison.
+
+        Figures are matched with a rounding tolerance, not exact float
+        equality: a narrative naturally rounds numbers for readability
+        (e.g. "59.97%" summarizing a raw "59.970070"), and comparing those
+        as exact floats would flag every correctly-grounded answer as
+        unverified just because of display rounding.
         """
         if not source_rows:
             return {"grounded": False, "score": 0, "figures": 0, "traceable": 0}
 
-        figures = re.findall(r"\$?[\d,]+\.?\d*[KMB%]?", response_text)
+        figures = [f for f in re.findall(r"\$?[\d,]+\.?\d*[KMB%]?", response_text) if re.search(r"\d", f)]
         if not figures:
             return {"grounded": True, "score": 100, "figures": 0, "traceable": 0}
 
@@ -125,12 +147,14 @@ class GuardrailEngine:
 
         traceable = 0
         for fig in figures:
+            numeric_str = fig.replace("$", "").replace(",", "").replace("%", "").rstrip("KMB")
             try:
-                n = float(fig.replace("$", "").replace(",", "").replace("%", "").rstrip("KMB"))
-                if n in source_values:
-                    traceable += 1
+                n = float(numeric_str)
             except ValueError:
-                pass
+                continue
+            tolerance = self._figure_tolerance(numeric_str)
+            if any(abs(n - sv) <= tolerance for sv in source_values):
+                traceable += 1
 
         score = round((traceable / len(figures)) * 100) if figures else 100
         grounded = score >= 60

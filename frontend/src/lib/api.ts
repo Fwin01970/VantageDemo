@@ -515,3 +515,26 @@ export async function deleteCredentials(token: string): Promise<void> {
     headers: { Authorization: `Bearer ${token}` },
   });
 }
+
+// ── Genie dynamic configuration (query parameter dropdowns, question
+// template, suggested questions) — set per tenant/user by a Platform
+// Super Admin, never hardcoded here. See backend/app/routers/databricks.py
+// ── /data/genie-config for how personal-vs-tenant-default is resolved.
+export interface GenieField {
+  field_name: string;
+  options: string[];
+}
+
+export interface GenieConfig {
+  fields: GenieField[];
+  template: string | null;
+  suggested_questions: string[];
+}
+
+export async function fetchGenieConfig(token: string): Promise<GenieConfig> {
+  const res = await fetch(`${API_BASE}/data/genie-config`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return handle<GenieConfig>(res);
+}
+

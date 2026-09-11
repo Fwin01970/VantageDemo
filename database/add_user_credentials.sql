@@ -1,5 +1,7 @@
 -- ── Per-user credentials ────────────────────────────────────────────────
--- See CREDENTIAL_MANAGEMENT_DESIGN.md for the full design. Two tables:
+-- See CREDENTIAL_MANAGEMENT_DESIGN.md for the full design. These tables
+-- are provisioned in each tenant schema by tenant_application_schemas.sql.
+-- Two tables:
 --   user_credentials — metadata only (host, warehouse id, etc.) plus an
 --                      opaque secret_ref — NEVER a raw secret.
 --   local_secrets     — the actual encrypted bytes, for the local/dev

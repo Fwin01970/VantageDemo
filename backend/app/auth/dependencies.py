@@ -65,8 +65,15 @@ def get_current_user(
 
     # Activate Row-Level Security for this database session BEFORE
     # querying anything else, so even a coding mistake below cannot
-    # accidentally return another tenant's rows.
-    set_tenant_context(db, tenant_id)
+    # accidentally return another tenant's rows. user_id is included
+    # here (not just tenant_id) because user_credentials' RLS policy
+    # checks BOTH tenant_id and user_id — leaving user_id unset made
+    # every personal-credential lookup outside of credentials.py's own
+    # routes (which were separately re-setting it themselves) silently
+    # return zero rows, even for a real, correctly-saved row, which is
+    # what made Ask AI / Genie / Use Cases wrongly fall back to the
+    # tenant-wide shared connection instead of the user's own.
+    set_tenant_context(db, tenant_id, user_id)
 
     context = resolve_tenant_context(db, user_id=user_id, tenant_id=tenant_id)
     if context is None:
