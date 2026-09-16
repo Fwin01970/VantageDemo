@@ -246,20 +246,11 @@ def list_tenants_admin_only(
     return [{"id": str(t.id), "name": t.name, "industry": t.industry} for t in tenants]
 
 
-@app.get("/audit/log")
-def view_audit_log(
-    ctx: TenantContext = Depends(require_permission("audit:view")),
-    db: Session = Depends(get_db),
-):
-    """
-    Returns this tenant's own audit entries — Row-Level Security means
-    this query physically cannot return another tenant's rows, the same
-    guarantee as /admin/tenants. Requires the 'audit:view' permission.
-    """
-    rows = db.execute(
-        text(
-            "SELECT id, user_id, action, details, created_at "
-            "FROM audit_log ORDER BY created_at DESC LIMIT 100"
-        )
-    ).mappings().all()
-    return [dict(r) for r in rows]
+# NOTE: the old GET /audit/log endpoint (tenant's own raw audit dump,
+# gated by audit:view) was removed here on purpose. Raw audit history is
+# now Platform Super Admin-only (routers/admin.py's /admin/audit-log,
+# gated by platform:manage) — an ordinary tenant user, even one with
+# audit:view, no longer has any endpoint that returns it. audit:view
+# still gates the Governance panel's Activity feed and HITL queue
+# (routers/governance.py), which are a different, narrower thing: recent
+# guardrail decisions and review cases, not the full audit trail.

@@ -1,0 +1,4 @@
+id,tenant_id,email,display_name,entra_object_id,is_active,created_at,password_hash,auth_provider,oauth_subject,failed_login_attempts,locked_until,last_login_at
+b1111111-0000-0000-0000-000000000001,11111111-1111-1111-1111-111111111111,sarah.chen@abcinsurance.demo,Sarah Chen,,t,2026-08-13 19:11:29.956335+05:30,,local,,0,,
+b1111111-0000-0000-0000-000000000002,11111111-1111-1111-1111-111111111111,viewer@abcinsurance.demo,Demo Viewer,,t,2026-08-13 19:11:29.956335+05:30,,local,,0,,
+8c4a20a9-e43c-4142-867c-6bece73c8962,11111111-1111-1111-1111-111111111111,moneshsatav8k@gmail.com,Monesh Satav,,t,2026-09-02 13:08:33.851873+05:30,,local,,0,,

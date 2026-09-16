@@ -110,7 +110,11 @@ $$;
 
 CREATE OR REPLACE FUNCTION delete_company_for_admin(p_tenant_id UUID)
 RETURNS VOID
-LANGUAGE plpgsql SECURITY DEFINER AS $$
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_catalog
+AS $$
+DECLARE
+    v_schema TEXT;
 BEGIN
     -- Refuse to delete the internal platform tenant itself, even by a
     -- platform admin — deleting the tenant that holds every
@@ -118,10 +122,25 @@ BEGIN
     IF p_tenant_id = '00000000-0000-0000-0000-000000000000' THEN
         RAISE EXCEPTION 'Cannot delete the internal platform tenant';
     END IF;
-    -- users/roles/data_source_connections/audit_log all cascade via their
-    -- existing ON DELETE CASCADE foreign keys to tenants (schema.sql) —
-    -- this delete alone is sufficient.
+
+    -- Capture the schema name BEFORE deleting the tenants row — once
+    -- that row is gone, there's no way to look this up again.
+    SELECT schema_name INTO v_schema FROM tenants WHERE id = p_tenant_id;
+
+    -- users/roles/data_source_connections/audit_log (all PUBLIC-schema
+    -- tables) cascade via their existing ON DELETE CASCADE foreign keys
+    -- to tenants (schema.sql) — this delete alone is sufficient for
+    -- those. It does NOT touch the tenant's own PRIVATE schema, though —
+    -- that's a physically separate object Postgres has no FK concept
+    -- for, so it has to be dropped explicitly or it's left behind
+    -- forever: every use case, pinned item, personal credential, Genie
+    -- config, and query parameter that tenant ever had, orphaned with no
+    -- tenants row pointing at it anymore.
     DELETE FROM tenants WHERE id = p_tenant_id;
+
+    IF v_schema IS NOT NULL THEN
+        EXECUTE format('DROP SCHEMA IF EXISTS %I CASCADE', v_schema);
+    END IF;
 END;
 $$;
 

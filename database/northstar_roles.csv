@@ -1,0 +1,6 @@
+id,tenant_id,name,description,created_at
+a2222222-0000-0000-0000-000000000002,22222222-2222-2222-2222-222222222222,Loan Portfolio Manager,Owns loan portfolio performance and reporting,2026-08-26 02:20:36.841989+05:30
+a2222222-0000-0000-0000-000000000003,22222222-2222-2222-2222-222222222222,Branch Operations Director,Oversees branch-level deposit and account performance,2026-08-26 02:20:36.841989+05:30
+a2222222-0000-0000-0000-000000000004,22222222-2222-2222-2222-222222222222,Compliance & AML Officer,Monitors for regulatory and fraud risk; full audit visibility,2026-08-26 02:20:36.841989+05:30
+a2222222-0000-0000-0000-000000000005,22222222-2222-2222-2222-222222222222,Chief Financial Officer,Full analytical and administrative access,2026-08-26 02:20:36.841989+05:30
+a2222222-0000-0000-0000-000000000001,22222222-2222-2222-2222-222222222222,Team Member,Full access for this tenant — every user has the same permissions,2026-08-13 19:11:29.956335+05:30

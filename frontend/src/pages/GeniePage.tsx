@@ -233,16 +233,25 @@ export default function GeniePage({ token, onResult, sessionExpired, onSessionEx
                 <MarkdownLite text={result.summary} />
               </div>
             )}
-            <button style={styles.pinButton} onClick={handlePin} disabled={pinned}>
-              {pinned ? "📌 Pinned" : "📌 Pin text"}
-            </button>
-          </div>
-          {result.guardrails.grounding?.flagged && (
-            <div style={styles.groundingWarning}>
-              ⚠ Some figures in this summary couldn't be verified against the returned data.
-              Check the Governance panel for details.
+            <div style={styles.cornerBadges}>
+              {result.guardrails.grounding && (
+                <span
+                  style={{
+                    ...styles.groundingBadge,
+                    ...(result.guardrails.grounding.flagged ? styles.groundingBadgeFlagged : styles.groundingBadgeOk),
+                  }}
+                  title={result.guardrails.grounding.flagged
+                    ? "Some figures in this summary couldn't be traced back to the returned rows."
+                    : "Every figure in this summary traces back to the returned rows."}
+                >
+                  {result.guardrails.grounding.flagged ? "⚠" : "✓"} Grounding {result.guardrails.grounding.score}/100
+                </span>
+              )}
+              <button style={styles.pinButton} onClick={handlePin} disabled={pinned}>
+                {pinned ? "📌 Pinned" : "📌 Pin text"}
+              </button>
             </div>
-          )}
+          </div>
 
           {result.columns.length > 0 ? (
             <>
@@ -370,15 +379,10 @@ const styles: Record<string, React.CSSProperties> = {
   },
   chartPinRow: { display: "flex", justifyContent: "flex-end", marginBottom: 8 },
   summary: { fontSize: 14.5, lineHeight: 1.6, marginTop: 0, marginBottom: 16 },
-  groundingWarning: {
-    background: "#FFF7E6",
-    border: "1px solid #F0C36D",
-    borderRadius: 6,
-    padding: "8px 10px",
-    fontSize: 12.5,
-    color: "#8A5A00",
-    marginBottom: 14,
-  },
+  cornerBadges: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 },
+  groundingBadge: { fontSize: 11, fontFamily: "var(--mono)", borderRadius: 4, padding: "3px 7px", border: "1px solid", whiteSpace: "nowrap" },
+  groundingBadgeOk: { background: "rgba(22,138,82,0.08)", color: "#168A52", borderColor: "rgba(22,138,82,0.3)" },
+  groundingBadgeFlagged: { background: "#FFF7E6", color: "#8A5A00", borderColor: "#F0C36D" },
   tableWrap: { overflowX: "auto", border: "1px solid var(--line)", borderRadius: 8 },
   table: { width: "100%", borderCollapse: "collapse", fontSize: 12.5 },
   th: {

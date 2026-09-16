@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fetchPinnedItems, deletePinnedItem, PinnedItem, ApiError } from "../lib/api";
+import { fetchPinnedItems, deletePinnedItem, setPinnedItemShared, PinnedItem, ApiError } from "../lib/api";
 import ChatDataChart from "../components/ChatDataChart";
 import MarkdownLite from "../components/MarkdownLite";
 import ResizableCard from "../components/ResizableCard";
@@ -46,6 +46,11 @@ export default function DashboardPage({ token, onSessionExpired }: Props) {
     setItems((prev) => (prev ? prev.filter((i) => i.id !== id) : prev));
   }
 
+  async function handleToggleShare(item: PinnedItem) {
+    const updated = await setPinnedItemShared(token, item.id, !item.is_shared);
+    setItems((prev) => (prev ? prev.map((i) => (i.id === item.id ? { ...i, is_shared: updated.is_shared } : i)) : prev));
+  }
+
   if (error) return <div style={styles.page}><div style={styles.errorCard}>{error}</div></div>;
   if (!items) return <div style={styles.page}><div style={styles.loading}>Loading dashboard…</div></div>;
 
@@ -54,7 +59,10 @@ export default function DashboardPage({ token, onSessionExpired }: Props) {
       <div style={styles.heading}>
         <div>
           <h1 style={styles.h1}>Dashboards</h1>
-          <p style={styles.sub}>Pinned from Ask AI and Genie. Click 📌 Pin on any result to add it here.</p>
+          <p style={styles.sub}>
+            Pinned from Ask AI, Genie, and Use Cases. Your pins are private to you — click "Share" on any
+            pin to make it visible to the rest of your team.
+          </p>
         </div>
         <button style={styles.refreshBtn} onClick={handleRefresh} disabled={refreshing} title="Refresh pinned items">
           <span style={{ display: "inline-block", ...(refreshing ? styles.spin : {}) }}>⟳</span>
@@ -64,7 +72,7 @@ export default function DashboardPage({ token, onSessionExpired }: Props) {
 
       {items.length === 0 ? (
         <div style={styles.emptyCard}>
-          No pinned items yet. Go to Ask AI or Genie, get an answer, and click "Pin" to add it here.
+          No pinned items yet. Go to Ask AI, Genie, or Use Cases, get an answer, and click "Pin" to add it here.
         </div>
       ) : (
         <div style={styles.grid}>
@@ -74,9 +82,25 @@ export default function DashboardPage({ token, onSessionExpired }: Props) {
                 <div style={styles.cardHeader}>
                   <div>
                     <div style={styles.cardTitle}>{item.title}</div>
-                    <div style={styles.cardSub}>Pinned from {item.source === "genie" ? "Genie" : "Ask AI"}</div>
+                    <div style={styles.cardSub}>
+                      Pinned from {item.source === "genie" ? "Genie" : item.source === "use_case" ? "a Use Case" : "Ask AI"}
+                      {!item.is_mine && item.owner_name && ` · shared by ${item.owner_name}`}
+                    </div>
                   </div>
-                  <button style={styles.removeBtn} onClick={() => handleRemove(item.id)} title="Remove">✕</button>
+                  <div style={styles.cardHeaderActions}>
+                    {item.is_mine && (
+                      <button
+                        style={{ ...styles.shareBtn, ...(item.is_shared ? styles.shareBtnActive : {}) }}
+                        onClick={() => handleToggleShare(item)}
+                        title={item.is_shared ? "Visible to your team — click to make private again" : "Only visible to you — click to share with your team"}
+                      >
+                        {item.is_shared ? "👥 Shared" : "🔒 Private"}
+                      </button>
+                    )}
+                    {item.is_mine && (
+                      <button style={styles.removeBtn} onClick={() => handleRemove(item.id)} title="Remove">✕</button>
+                    )}
+                  </div>
                 </div>
                 <div style={styles.cardBody}>
                   {item.item_type === "insight" && (
@@ -145,6 +169,12 @@ const styles: Record<string, React.CSSProperties> = {
   cardTitle: { fontSize: 13.5, fontWeight: 700, lineHeight: 1.4, wordBreak: "break-word" },
   cardSub: { fontSize: 11, color: "var(--ink-soft)", marginTop: 2 },
   removeBtn: { background: "none", border: "1px solid var(--line)", borderRadius: 6, width: 26, height: 26, cursor: "pointer", color: "var(--ink-soft)", flexShrink: 0 },
+  cardHeaderActions: { display: "flex", gap: 6, flexShrink: 0, alignItems: "center" },
+  shareBtn: {
+    fontSize: 10.5, fontWeight: 600, whiteSpace: "nowrap", background: "none",
+    border: "1px solid var(--line)", borderRadius: 6, padding: "4px 8px", cursor: "pointer", color: "var(--ink-soft)",
+  },
+  shareBtnActive: { color: "var(--primary)", borderColor: "var(--primary)", background: "rgba(99,91,255,0.08)" },
   cardBody: { padding: 16, overflow: "auto", flex: 1, minHeight: 0 },
   insightBox: { background: "var(--primary-soft)", border: "1px solid var(--line)", borderRadius: 8, padding: 12, fontSize: 12.5, lineHeight: 1.6, color: "var(--ink)" },
   tableWrap: { overflowX: "auto" },

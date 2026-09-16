@@ -22,46 +22,44 @@ def create_review(db: Session, tenant_id: str, user_id: str, question: str, chec
     return str(row["id"])
 
 
-def list_reviews(db: Session, status: str | None = None, limit: int = 100) -> list[dict]:
+def list_reviews(db: Session, status: str | None = None, user_id: str | None = None, limit: int = 100) -> list[dict]:
+    conditions = []
+    params: dict = {"limit": limit}
     if status:
-        rows = db.execute(
-            text(
-                "SELECT gr.id, gr.question, gr.check_type, gr.reason, gr.status, gr.created_at, "
-                "gr.reviewed_at, gr.decision_note, u.display_name AS user_name, "
-                "ru.display_name AS reviewed_by_name "
-                "FROM governance_reviews gr "
-                "LEFT JOIN users u ON u.id = gr.user_id "
-                "LEFT JOIN users ru ON ru.id = gr.reviewed_by "
-                "WHERE gr.status = :status ORDER BY gr.created_at DESC LIMIT :limit"
-            ),
-            {"status": status, "limit": limit},
-        ).mappings().all()
-    else:
-        rows = db.execute(
-            text(
-                "SELECT gr.id, gr.question, gr.check_type, gr.reason, gr.status, gr.created_at, "
-                "gr.reviewed_at, gr.decision_note, u.display_name AS user_name, "
-                "ru.display_name AS reviewed_by_name "
-                "FROM governance_reviews gr "
-                "LEFT JOIN users u ON u.id = gr.user_id "
-                "LEFT JOIN users ru ON ru.id = gr.reviewed_by "
-                "ORDER BY gr.created_at DESC LIMIT :limit"
-            ),
-            {"limit": limit},
-        ).mappings().all()
+        conditions.append("gr.status = :status")
+        params["status"] = status
+    if user_id:
+        conditions.append("gr.user_id = :user_id")
+        params["user_id"] = user_id
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    rows = db.execute(
+        text(
+            "SELECT gr.id, gr.question, gr.check_type, gr.reason, gr.status, gr.created_at, "
+            "gr.reviewed_at, gr.decision_note, gr.user_id, u.display_name AS user_name, "
+            "ru.display_name AS reviewed_by_name "
+            "FROM governance_reviews gr "
+            "LEFT JOIN users u ON u.id = gr.user_id "
+            "LEFT JOIN users ru ON ru.id = gr.reviewed_by "
+            f"{where_clause} ORDER BY gr.created_at DESC LIMIT :limit"
+        ),
+        params,
+    ).mappings().all()
     return [dict(r) for r in rows]
 
 
 def decide_review(db: Session, review_id: str, reviewer_user_id: str, decision: str, note: str | None) -> dict | None:
-    """decision must be 'approved' or 'rejected'. Returns the updated row,
-    or None if no pending review with this id exists for this tenant (RLS
-    already scopes the WHERE-less lookup — a wrong-tenant id simply
-    matches zero rows rather than raising)."""
+    """decision must be 'approved', 'rejected', or 'hold'. Returns the
+    updated row, or None if no pending/held review with this id exists
+    for this tenant (RLS already scopes the WHERE-less lookup — a
+    wrong-tenant id simply matches zero rows rather than raising).
+    'hold' cases stay decidable again later (WHERE status IN pending/hold
+    below), unlike approved/rejected which are final."""
     row = db.execute(
         text(
             "UPDATE governance_reviews SET status = :status, reviewed_by = :reviewer, "
             "reviewed_at = now(), decision_note = :note "
-            "WHERE id = :id AND status = 'pending' RETURNING id, status"
+            "WHERE id = :id AND status IN ('pending', 'hold') RETURNING id, status"
         ),
         {"status": decision, "reviewer": reviewer_user_id, "note": note, "id": review_id},
     ).mappings().first()

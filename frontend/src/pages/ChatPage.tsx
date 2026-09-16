@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import {
   sendChatMessage, fetchConversations, fetchConversationMessages, fetchUseCases, pinItem, deletePinnedItem, deleteConversation,
-  ApiError, GuardrailEvent, ConversationSummary, UseCase, ChatChartData, fetchGenieConfig, GenieConfig ,GenieResult,
+  ApiError, GuardrailEvent, ConversationSummary, UseCase, ChatChartData, GenieResult,
 } from "../lib/api";
 import ConfirmDialog from "../components/ConfirmDialog";
 import ConversationHistoryPanel from "../components/ConversationHistoryPanel";
@@ -31,6 +31,7 @@ interface DisplayMessage {
   toolAvailable?: boolean;
   blockedEvents?: GuardrailEvent[] | null;
   chartData?: ChatChartData | null;
+  grounding?: { score: number; flagged: boolean } | null;
   // Presence of an id means "currently pinned" — tracked separately for
   // text vs. chart, since either, both, or neither may be pinned
   // independently for the same message.
@@ -38,18 +39,9 @@ interface DisplayMessage {
   chartPinId?: string | null;
 }
 
-function fillTemplate(
-  template: string,
-  values: Record<string, string>
-): string {
-  return template.replace(
-    /\{([^}]+)\}/g,
-    (match, fieldName) => {
-      const trimmed = fieldName.trim();
-      return values[trimmed] ?? match;
-    }
-  );
-}
+const PRODUCT_LINES = ["Motor", "Property", "General Liability", "Business Interruption"];
+const REGIONS = ["Midwest", "Northeast", "South", "West"];
+const FOCUS_AREAS = ["Risk", "Trend", "Forecast", "Anomalies"];
 
 function formatRelativeTime(iso: string): string {
   const date = new Date(iso);
@@ -88,12 +80,12 @@ export default function ChatPage({ token, sessionExpired, onSessionExpired, pend
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  
+  const [productLine, setProductLine] = useState(PRODUCT_LINES[0]);
+  const [region, setRegion] = useState(REGIONS[0]);
+  const [focus, setFocus] = useState(FOCUS_AREAS[0]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
-  const [config, setConfig] =  useState<GenieConfig | null>(null);
-  const [configLoading, setConfigLoading] =  useState(true);
-  const [paramValues, setParamValues] =  useState<Record<string, string>>({});
+
   const bottomRef = useRef<HTMLDivElement>(null);
 
   function refreshConversations() {
@@ -104,47 +96,6 @@ export default function ChatPage({ token, sessionExpired, onSessionExpired, pend
     refreshConversations();
     fetchUseCases(token).then(setUseCases).catch(() => {});
   }, [token]);
-
-  useEffect(() => {
-  let cancelled = false;
-
-  setConfigLoading(true);
-
-  fetchGenieConfig(token)
-    .then((cfg) => {
-      if (cancelled) return;
-
-      setConfig(cfg);
-
-      const defaults: Record<string, string> = {};
-
-      for (const f of cfg.fields) {
-        if (f.options.length > 0) {
-          defaults[f.field_name] = f.options[0];
-        }
-      }
-
-      setParamValues(defaults);
-    })
-    .catch(() => {
-      if (!cancelled) {
-        setConfig({
-          fields: [],
-          template: null,
-          suggested_questions: [],
-        });
-      }
-    })
-    .finally(() => {
-      if (!cancelled) {
-        setConfigLoading(false);
-      }
-    });
-
-  return () => {
-    cancelled = true;
-  };
-}, [token]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -213,7 +164,7 @@ export default function ChatPage({ token, sessionExpired, onSessionExpired, pend
       } else {
         setMessages([...nextMessages, {
           role: "assistant", content: res.reply, toolUsed: res.tool_used, toolAvailable: res.tool_available,
-          chartData: res.chart_data,
+          chartData: res.chart_data, grounding: res.grounding,
         }]);
       }
       // Feeds the SAME lastResult state Genie populates, so the
@@ -302,18 +253,10 @@ export default function ChatPage({ token, sessionExpired, onSessionExpired, pend
   }
 
   function runAnalysis() {
-  if (!config?.template) return;
+    send(`Analyze ${productLine} insurance ${focus.toLowerCase()} in the ${region} region.`);
+  }
 
-  send(
-    fillTemplate(
-      config.template,
-      paramValues
-    )
-  );
-}
-``
-
-  const suggestions =  config?.suggested_questions ?? [];
+  const suggestions = useCases.slice(0, 4).map((u) => u.sample_question);
 
   return (
     <div className="rz-three-col" style={styles.page}>
@@ -422,6 +365,16 @@ export default function ChatPage({ token, sessionExpired, onSessionExpired, pend
                             {m.toolAvailable === false ? "General knowledge (no data access this turn)" : "General knowledge"}
                           </span>
                         )}
+                        {m.grounding && (
+                          <span
+                            style={{ ...styles.groundingBadge, ...(m.grounding.flagged ? styles.groundingBadgeFlagged : styles.groundingBadgeOk) }}
+                            title={m.grounding.flagged
+                              ? "Some figures in this answer couldn't be traced back to the real data returned."
+                              : "Every figure in this answer traces back to the real data returned."}
+                          >
+                            {m.grounding.flagged ? "⚠" : "✓"} Grounding {m.grounding.score}/100
+                          </span>
+                        )}
                         <button style={styles.pinBtn} onClick={() => handlePinText(i)} title="Pin text to dashboard">
                           {m.textPinId ? "📌 Unpin text" : "📌 Pin text"}
                         </button>
@@ -457,55 +410,28 @@ export default function ChatPage({ token, sessionExpired, onSessionExpired, pend
 
       <aside className="rz-col-right rz-card-col" style={styles.rightPanel}>
         <div style={styles.sideLabel}>Query Parameters</div>
-        {configLoading && <div style={styles.configNote}>Loading…</div>}
-        {!configLoading && !config?.fields.length && (
-          <div style={styles.configNote}>
-            No query parameters have been configured for your organization yet.
-            An administrator can set these up from Master Admin.
-          </div>
-        )}
-
-        {config?.fields.map((f) => (
-          <div key={f.field_name}>
-            <label style={styles.fieldLabel}>{f.field_name}</label>
-            <select
-              style={styles.select}
-              value={paramValues[f.field_name] ?? ""}
-              onChange={(e) =>
-                setParamValues((prev) => ({
-                  ...prev,
-                  [f.field_name]: e.target.value,
-                }))
-              }
-            >
-              {f.options.map((o) => (
-                <option key={o}>{o}</option>
-              ))}
-            </select>
-          </div>
-        ))}
-
-        {config?.template && (
-          <button style={styles.runBtn} onClick={runAnalysis} disabled={loading || sessionExpired}>
-            ▶ Run analysis
-          </button>
-        )}
+        <label style={styles.fieldLabel}>Product line</label>
+        <select style={styles.select} value={productLine} onChange={(e) => setProductLine(e.target.value)}>
+          {PRODUCT_LINES.map((p) => <option key={p}>{p}</option>)}
+        </select>
+        <label style={styles.fieldLabel}>Region</label>
+        <select style={styles.select} value={region} onChange={(e) => setRegion(e.target.value)}>
+          {REGIONS.map((r) => <option key={r}>{r}</option>)}
+        </select>
+        <label style={styles.fieldLabel}>Analysis focus</label>
+        <select style={styles.select} value={focus} onChange={(e) => setFocus(e.target.value)}>
+          {FOCUS_AREAS.map((f) => <option key={f}>{f}</option>)}
+        </select>
+        <button style={styles.runBtn} onClick={runAnalysis} disabled={loading || sessionExpired}>▶ Run analysis</button>
 
         {suggestions.length > 0 && (
           <>
-            <div style={{ ...styles.sideLabel, marginTop: 28 }}>Suggested Questions</div>
-            <div style={styles.suggestionList}>
-              {suggestions.map((s, i) => (
-                <button
-                  key={i}
-                  style={styles.suggestionBtn}
-                  onClick={() => send(s)}
-                  disabled={loading || sessionExpired}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
+            <div style={{ ...styles.sideLabel, marginTop: 24 }}>Suggested questions</div>
+            {suggestions.map((s, i) => (
+              <button key={i} style={styles.suggestionBtn} onClick={() => send(s)} disabled={loading || sessionExpired}>
+                {s}
+              </button>
+            ))}
           </>
         )}
       </aside>
@@ -570,6 +496,9 @@ const styles: Record<string, React.CSSProperties> = {
   chartPinRow: { marginTop: 6, display: "flex", justifyContent: "flex-end" },
   badgeData: { fontSize: 11, fontFamily: "var(--mono)", background: "var(--accent-soft)", color: "var(--accent)", borderRadius: 4, padding: "2px 6px" },
   badgeGeneral: { fontSize: 11, fontFamily: "var(--mono)", background: "var(--paper)", color: "var(--ink-soft)", border: "1px solid var(--line)", borderRadius: 4, padding: "2px 6px" },
+  groundingBadge: { fontSize: 11, fontFamily: "var(--mono)", borderRadius: 4, padding: "2px 6px", border: "1px solid" },
+  groundingBadgeOk: { background: "rgba(22,138,82,0.08)", color: "#168A52", borderColor: "rgba(22,138,82,0.3)" },
+  groundingBadgeFlagged: { background: "#FFF7E6", color: "#8A5A00", borderColor: "#F0C36D" },
   pinBtn: { fontSize: 11, background: "none", border: "1px solid var(--line)", borderRadius: 4, padding: "2px 6px", cursor: "pointer", color: "var(--ink-soft)" },
   blockedTitle: { fontWeight: 700, color: "var(--danger)", marginBottom: 4, fontSize: 12.5 },
   blockedEvent: { fontSize: 12, color: "var(--ink)" },

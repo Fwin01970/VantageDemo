@@ -58,6 +58,43 @@ def list_companies(
     return [dict(r) for r in rows]
 
 
+def _ensure_default_role(db: Session, tenant_id: str) -> str:
+    """
+    Finds this tenant's earliest-created role, or creates one if it has
+    none at all. This is the fix for a real gap: create_company_for_admin
+    and create_user_for_admin only ever created the tenant/user rows
+    themselves — neither one created or assigned a role, so a tenant
+    created purely through the Admin UI ended up with users who had
+    ZERO permissions, unable to use Ask AI/Genie/anything, with no
+    visible error anywhere pointing at why. Every new tenant now gets a
+    real "Team Member" role automatically; every new user is
+    automatically assigned to it.
+    """
+    existing = db.execute(
+        text("SELECT id FROM roles WHERE tenant_id = :tenant_id ORDER BY created_at ASC LIMIT 1"),
+        {"tenant_id": tenant_id},
+    ).mappings().first()
+    if existing:
+        return str(existing["id"])
+
+    result = db.execute(
+        text(
+            "SELECT create_role_for_admin(:tenant_id, 'Team Member', "
+            "'Full access for this tenant — every user has the same permissions') AS id"
+        ),
+        {"tenant_id": tenant_id},
+    ).mappings().first()
+    role_id = str(result["id"])
+    db.execute(
+        text("SELECT set_role_permissions_for_admin(:role_id, :codes)"),
+        {
+            "role_id": role_id,
+            "codes": ["data:query", "dashboard:manage", "tenant:manage", "audit:view", "governance:manage"],
+        },
+    )
+    return role_id
+
+
 class NewCompany(BaseModel):
     name: str
     industry: str
@@ -71,17 +108,21 @@ def create_company(
     db: Session = Depends(get_db),
 ):
     """
-    Creates a tenant only. Deliberately does NOT seed Use Cases, Ask AI
-    conversations, or any other product content — this is platform
-    structure, not product data. A new tenant starts genuinely empty;
-    populating it with use cases/dashboards is that tab's own job, not
-    Admin's.
+    Creates a tenant, PLUS a default "Team Member" role with the
+    standard permission set (data:query, dashboard:manage, tenant:manage,
+    audit:view, governance:manage) — every user added to this tenant
+    afterward gets assigned to it automatically (see create_user below).
+    Deliberately does NOT seed Use Cases, Ask AI conversations, or any
+    other product content — this is platform structure, not product
+    data. A new tenant starts genuinely empty of business content, but
+    never empty of the permissions needed to actually use the app.
     """
     result = db.execute(
         text("SELECT create_company_for_admin(:name, :industry) AS id"),
         {"name": body.name, "industry": body.industry},
     ).mappings().first()
     new_id = str(result["id"])
+    _ensure_default_role(db, new_id)
     db.commit()
 
     log_event(
@@ -195,11 +236,24 @@ def create_user(
     ctx: TenantContext = Depends(require_permission("platform:manage")),
     db: Session = Depends(get_db),
 ):
+    """
+    Creates a user AND assigns them to their tenant's default role
+    automatically — using _ensure_default_role, which also transparently
+    fixes any older tenant that somehow still has zero roles (e.g. one
+    created before this fix existed). A user created through this
+    endpoint is never left with zero permissions.
+    """
     result = db.execute(
         text("SELECT create_user_for_admin(:tenant_id, :display_name, :email) AS id"),
         {"tenant_id": body.tenant_id, "display_name": body.display_name, "email": body.email},
     ).mappings().first()
     new_id = str(result["id"])
+
+    role_id = _ensure_default_role(db, body.tenant_id)
+    db.execute(
+        text("SELECT assign_role_to_user_for_admin(:user_id, :role_id)"),
+        {"user_id": new_id, "role_id": role_id},
+    )
     db.commit()
 
     log_event(
@@ -429,6 +483,78 @@ def list_user_roles(
         text("SELECT * FROM list_roles_for_user_for_admin(:user_id)"), {"user_id": user_id}
     ).mappings().all()
     return [dict(r) for r in rows]
+
+
+class UserPermissionsInput(BaseModel):
+    tenant_id: str
+    permission_codes: list[str]
+
+
+@router.put("/users/{user_id}/permissions")
+def set_user_permissions(
+    user_id: str,
+    body: UserPermissionsInput,
+    ctx: TenantContext = Depends(require_permission("platform:manage")),
+    db: Session = Depends(get_db),
+):
+    """
+    Sets exactly which tabs/permissions ONE user has, in a single call —
+    this is what powers Manage Tabs. Rather than inventing a second,
+    parallel visibility system, this gives the user their own personal
+    role (named after them) with exactly the permission set requested,
+    removes them from every other role they had in this tenant, and
+    assigns them to their personal one. Reuses their existing personal
+    role on a later call instead of creating a new one each time, keyed
+    by the naming convention 'Custom — {user_id}' — deliberately
+    internal-looking so it's never confused with a real team role a
+    human named themselves.
+    """
+    role_name = f"Custom — {user_id}"
+    existing = db.execute(
+        text("SELECT id FROM roles WHERE tenant_id = :tenant_id AND name = :name"),
+        {"tenant_id": body.tenant_id, "name": role_name},
+    ).mappings().first()
+
+    if existing:
+        role_id = str(existing["id"])
+    else:
+        result = db.execute(
+            text("SELECT create_role_for_admin(:tenant_id, :name, 'Personal permission set — managed via Manage Tabs') AS id"),
+            {"tenant_id": body.tenant_id, "name": role_name},
+        ).mappings().first()
+        role_id = str(result["id"])
+
+    db.execute(
+        text("SELECT set_role_permissions_for_admin(:role_id, :codes)"),
+        {"role_id": role_id, "codes": body.permission_codes},
+    )
+
+    # Remove every OTHER role this user currently has (e.g. their
+    # tenant's shared "Team Member" role), so their personal role is the
+    # only thing controlling what they see from now on — otherwise the
+    # shared role's permissions would still leak through alongside it.
+    current_roles = db.execute(
+        text("SELECT * FROM list_roles_for_user_for_admin(:user_id)"), {"user_id": user_id}
+    ).mappings().all()
+    for r in current_roles:
+        if str(r["role_id"]) != role_id:
+            db.execute(
+                text("SELECT remove_role_from_user_for_admin(:user_id, :role_id)"),
+                {"user_id": user_id, "role_id": str(r["role_id"])},
+            )
+
+    db.execute(
+        text("SELECT assign_role_to_user_for_admin(:user_id, :role_id)"),
+        {"user_id": user_id, "role_id": role_id},
+    )
+    db.commit()
+
+    log_event(
+        db, tenant_id=ctx.tenant_id, user_id=ctx.user_id,
+        action="admin.user_permissions_set",
+        details={"user_id": user_id, "permission_codes": body.permission_codes},
+    )
+    return {"user_id": user_id, "role_id": role_id, "permission_codes": body.permission_codes}
 
 
 @router.post("/users/{user_id}/roles/{role_id}")

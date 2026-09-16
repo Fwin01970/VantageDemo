@@ -1,0 +1,2 @@
+id,tenant_id,email,display_name,entra_object_id,is_active,created_at,password_hash,auth_provider,oauth_subject,failed_login_attempts,locked_until,last_login_at
+3e965f1d-c855-4f7e-a25a-c63da8d2de9b,ad555ae3-2787-47b9-a00a-57d1ac2d0c41,moneshsatav88k@gmail.com,Monesh Satav,,t,2026-09-02 14:08:31.838489+05:30,,local,,0,,

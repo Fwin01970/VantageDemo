@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import {
-  GenieResult, AuditEntry, fetchAuditLog, ApiError,
-  GuardrailActivityEntry, HitlReview, fetchGuardrailActivity, fetchHitlQueue, decideHitlCase,
+  GenieResult, ApiError,
+  GuardrailActivityEntry, GuardrailInfo, HitlReview,
+  fetchGuardrailActivity, fetchGuardrailsInfo, fetchHitlQueue, decideHitlCase,
 } from "../lib/api";
 
 interface Props {
@@ -11,7 +12,14 @@ interface Props {
   onSessionExpired?: () => void;
 }
 
-type Tab = "activity" | "hitl" | "sql" | "guardrails" | "grounding" | "audit";
+// "grounding" and "audit" tabs removed on purpose:
+//  - Grounding now shows as a badge directly on the Ask AI/Genie result
+//    card itself (ChatDataChart-adjacent — see ChatPage.tsx/GeniePage.tsx),
+//    not tucked away in a separate panel tab nobody opens.
+//  - Audit Log is Platform Super Admin-only now (Master Admin's own Audit
+//    Log tab, tenant + user filterable) — an ordinary tenant user's own
+//    Governance panel no longer shows the raw audit trail at all.
+type Tab = "activity" | "hitl" | "sql" | "guardrails";
 
 export default function GovernancePanel({ token, lastResult, onClose, onSessionExpired }: Props) {
   // "activity" first — the guardrail proxy layer's live activity feed and
@@ -37,7 +45,7 @@ export default function GovernancePanel({ token, lastResult, onClose, onSessionE
         </div>
 
         <div style={styles.tabs}>
-          {(["activity", "hitl", "sql", "guardrails", "grounding", "audit"] as Tab[]).map((t) => (
+          {(["activity", "hitl", "sql", "guardrails"] as Tab[]).map((t) => (
             <button
               key={t}
               style={{ ...styles.tabBtn, ...(tab === t ? styles.tabBtnActive : {}) }}
@@ -47,8 +55,6 @@ export default function GovernancePanel({ token, lastResult, onClose, onSessionE
               {t === "hitl" && "HITL Review"}
               {t === "sql" && "SQL"}
               {t === "guardrails" && "Guardrails"}
-              {t === "grounding" && "Grounding"}
-              {t === "audit" && "Audit Log"}
             </button>
           ))}
         </div>
@@ -57,9 +63,7 @@ export default function GovernancePanel({ token, lastResult, onClose, onSessionE
           {tab === "activity" && <ActivityTab token={token} onSessionExpired={onSessionExpired} />}
           {tab === "hitl" && <HitlTab token={token} onSessionExpired={onSessionExpired} />}
           {tab === "sql" && <SqlTab result={lastResult} />}
-          {tab === "guardrails" && <GuardrailsTab result={lastResult} />}
-          {tab === "grounding" && <GroundingTab result={lastResult} />}
-          {tab === "audit" && <AuditTab token={token} />}
+          {tab === "guardrails" && <GuardrailsTab token={token} result={lastResult} />}
         </div>
       </div>
     </div>
@@ -130,10 +134,11 @@ function HitlTab({ token, onSessionExpired }: { token: string; onSessionExpired?
   const [reviews, setReviews] = useState<HitlReview[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<"pending" | "all">("pending");
+  const [userFilter, setUserFilter] = useState<string>("");
   const [busyId, setBusyId] = useState<string | null>(null);
 
   function load() {
-    fetchHitlQueue(token, filter === "pending" ? "pending" : undefined)
+    fetchHitlQueue(token, filter === "pending" ? "pending" : undefined, userFilter || undefined)
       .then(setReviews)
       .catch((e: ApiError) => {
         if (e.status === 401) onSessionExpired?.();
@@ -141,9 +146,9 @@ function HitlTab({ token, onSessionExpired }: { token: string; onSessionExpired?
       });
   }
 
-  useEffect(load, [token, filter]);
+  useEffect(load, [token, filter, userFilter]);
 
-  async function handleDecision(id: string, decision: "approved" | "rejected") {
+  async function handleDecision(id: string, decision: "approved" | "rejected" | "hold") {
     setBusyId(id);
     try {
       await decideHitlCase(token, id, decision);
@@ -157,6 +162,16 @@ function HitlTab({ token, onSessionExpired }: { token: string; onSessionExpired?
 
   if (error) return <Empty text={`Couldn't load the review queue: ${error}`} />;
   if (!reviews) return <Empty text="Loading…" />;
+
+  // Derived from whatever's already loaded — no separate "list every
+  // user in this tenant" endpoint needed just for a filter dropdown.
+  // Switching this filter re-fetches from the server (see load() above),
+  // so once a name is chosen the list still reflects the current
+  // pending/all toggle correctly, not just what happened to be loaded
+  // before the filter was picked.
+  const knownUsers = Array.from(
+    new Map(reviews.filter((r) => r.user_id).map((r) => [r.user_id as string, r.user_name || "Unknown"])).entries()
+  );
 
   return (
     <div>
@@ -173,10 +188,23 @@ function HitlTab({ token, onSessionExpired }: { token: string; onSessionExpired?
             style={{ ...styles.toggleBtn, ...(filter === "all" ? styles.toggleBtnActive : {}) }}
             onClick={() => setFilter("all")}
           >
-            All
+            All (history)
           </button>
         </div>
       </div>
+
+      {knownUsers.length > 0 && (
+        <select
+          style={styles.userFilterSelect}
+          value={userFilter}
+          onChange={(e) => setUserFilter(e.target.value)}
+        >
+          <option value="">All users</option>
+          {knownUsers.map(([id, name]) => (
+            <option key={id} value={id}>{name}</option>
+          ))}
+        </select>
+      )}
 
       {reviews.length === 0 ? (
         <Empty text={filter === "pending" ? "No cases waiting for review." : "No HITL cases recorded yet."} />
@@ -188,27 +216,42 @@ function HitlTab({ token, onSessionExpired }: { token: string; onSessionExpired?
               {r.check_type} · asked by {r.user_name || "unknown user"} · {new Date(r.created_at).toLocaleString()}
             </div>
             <div style={styles.hitlReason}>{r.reason}</div>
-            {r.status === "pending" ? (
+            {(r.status === "pending" || r.status === "hold") ? (
               <div style={styles.hitlActions}>
                 <button
                   style={styles.approveBtn}
                   disabled={busyId === r.id}
                   onClick={() => handleDecision(r.id, "approved")}
                 >
-                  ✓ Approve (answer was appropriate)
+                  ✓ Approve
+                </button>
+                <button
+                  style={styles.holdBtn}
+                  disabled={busyId === r.id}
+                  onClick={() => handleDecision(r.id, "hold")}
+                >
+                  ⏸ Hold
                 </button>
                 <button
                   style={styles.rejectBtn}
                   disabled={busyId === r.id}
                   onClick={() => handleDecision(r.id, "rejected")}
                 >
-                  ✕ Reject (confirm block)
+                  ✕ Reject
                 </button>
               </div>
             ) : (
-              <div style={{ ...styles.hitlStatusBadge, ...(r.status === "approved" ? styles.hitlApproved : styles.hitlRejected) }}>
+              <div style={{
+                ...styles.hitlStatusBadge,
+                ...(r.status === "approved" ? styles.hitlApproved : styles.hitlRejected),
+              }}>
                 {r.status === "approved" ? "Approved" : "Rejected"} by {r.reviewed_by_name || "reviewer"}
                 {r.reviewed_at && ` · ${new Date(r.reviewed_at).toLocaleString()}`}
+              </div>
+            )}
+            {r.status === "hold" && (
+              <div style={{ ...styles.hitlStatusBadge, ...styles.hitlHold }}>
+                On hold — awaiting a final decision
               </div>
             )}
           </div>
@@ -224,13 +267,31 @@ function SqlTab({ result }: { result: GenieResult | null }) {
   return <pre style={styles.code}>{result.sql}</pre>;
 }
 
-function GuardrailsTab({ result }: { result: GenieResult | null }) {
-  if (!result) return <Empty text="Ask a question first — guardrail activity will appear here." />;
-  const { input_events, llm_check } = result.guardrails;
+function GuardrailsTab({ token, result }: { token: string; result: GenieResult | null }) {
+  const [info, setInfo] = useState<GuardrailInfo[] | null>(null);
+
+  useEffect(() => {
+    fetchGuardrailsInfo(token).then(setInfo).catch(() => setInfo([]));
+  }, [token]);
+
+  const { input_events, llm_check } = result?.guardrails ?? { input_events: [], llm_check: null };
+
   return (
     <div>
-      <div style={styles.sectionLabel}>Regex pre-checks (jailbreak / PII / fairness)</div>
-      {input_events.length === 0 ? (
+      <div style={styles.sectionLabel}>What's protecting your questions</div>
+      {info === null && <Empty text="Loading…" />}
+      {info?.map((g) => (
+        <div key={g.name} style={styles.guardrailInfoCard}>
+          <div style={styles.guardrailInfoName}>{g.name}</div>
+          <div style={styles.guardrailInfoStage}>{g.stage}</div>
+          <div style={styles.guardrailInfoDesc}>{g.description}</div>
+        </div>
+      ))}
+
+      <div style={{ ...styles.sectionLabel, marginTop: 20 }}>Regex pre-checks on your last question</div>
+      {!result ? (
+        <Empty text="Ask a question first — guardrail activity will appear here." />
+      ) : input_events.length === 0 ? (
         <Empty text="No regex guardrail events on the last question." />
       ) : (
         input_events.map((e, i) => (
@@ -240,62 +301,19 @@ function GuardrailsTab({ result }: { result: GenieResult | null }) {
           </div>
         ))
       )}
-      <div style={{ ...styles.sectionLabel, marginTop: 16 }}>LLM semantic check (second pass)</div>
-      {llm_check.ran ? (
-        <div style={styles.eventRow}>
-          <span style={styles.eventPolicy}>PASSED</span>
-          <span style={styles.eventDetail}>via {llm_check.provider_used}</span>
-        </div>
-      ) : (
-        <Empty text="LLM check did not run this time (all providers unreachable, or the question was already blocked by regex). See Audit Log for details." />
-      )}
-    </div>
-  );
-}
-
-function GroundingTab({ result }: { result: GenieResult | null }) {
-  if (!result) return <Empty text="Ask a question first — the grounding score will appear here." />;
-  const g = result.guardrails.grounding;
-  if (!g) return <Empty text="No grounding score — the last answer had no summary/rows to check." />;
-  return (
-    <div>
-      <div style={styles.scoreBig}>{g.score}<span style={{ fontSize: 16 }}>/100</span></div>
-      <div style={{ ...styles.eventDetail, marginTop: 6 }}>
-        {g.flagged
-          ? "Flagged — some figures in the summary could not be traced back to the returned rows."
-          : "Not flagged — figures in the summary trace back to the returned rows."}
-      </div>
-    </div>
-  );
-}
-
-function AuditTab({ token }: { token: string }) {
-  const [entries, setEntries] = useState<AuditEntry[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchAuditLog(token)
-      .then(setEntries)
-      .catch((e: ApiError) => setError(e.message));
-  }, [token]);
-
-  if (error) return <Empty text={`Couldn't load the audit log: ${error}`} />;
-  if (!entries) return <Empty text="Loading…" />;
-  if (entries.length === 0) return <Empty text="No audit entries yet." />;
-
-  return (
-    <div>
-      {entries.map((e) => (
-        <div key={e.id} style={styles.auditRow}>
-          <div style={styles.auditHeader}>
-            <span style={styles.auditAction}>{e.action}</span>
-            <span style={styles.auditTime}>{new Date(e.created_at).toLocaleString()}</span>
-          </div>
-          {Object.keys(e.details).length > 0 && (
-            <pre style={styles.auditDetails}>{JSON.stringify(e.details, null, 2)}</pre>
+      {result && (
+        <>
+          <div style={{ ...styles.sectionLabel, marginTop: 16 }}>LLM semantic check (second pass)</div>
+          {llm_check?.ran ? (
+            <div style={styles.eventRow}>
+              <span style={styles.eventPolicy}>PASSED</span>
+              <span style={styles.eventDetail}>via {llm_check.provider_used}</span>
+            </div>
+          ) : (
+            <Empty text="LLM check did not run this time (all providers unreachable, or the question was already blocked by regex)." />
           )}
-        </div>
-      ))}
+        </>
+      )}
     </div>
   );
 }
@@ -388,21 +406,6 @@ const styles: Record<string, React.CSSProperties> = {
     flexShrink: 0,
   },
   eventDetail: { color: "var(--ink-soft)" },
-  scoreBig: { fontFamily: "var(--mono)", fontSize: 36, fontWeight: 700, color: "var(--primary)" },
-  auditRow: { padding: "10px 0", borderBottom: "1px solid var(--line)" },
-  auditHeader: { display: "flex", justifyContent: "space-between", fontSize: 12.5 },
-  auditAction: { fontFamily: "var(--mono)", fontWeight: 700, color: "var(--primary)" },
-  auditTime: { color: "var(--ink-soft)" },
-  auditDetails: {
-    marginTop: 6,
-    fontSize: 11,
-    background: "var(--paper)",
-    border: "1px solid var(--line)",
-    borderRadius: 6,
-    padding: 8,
-    whiteSpace: "pre-wrap",
-    wordBreak: "break-word",
-  },
   // Activity tab
   activityRow: {
     display: "flex", gap: 10, padding: "10px 0", borderBottom: "1px solid var(--line)",
@@ -429,16 +432,32 @@ const styles: Record<string, React.CSSProperties> = {
   hitlQuestion: { fontSize: 13, fontWeight: 600, color: "var(--ink)" },
   hitlMeta: { fontSize: 10.5, color: "var(--ink-soft)", marginTop: 3, textTransform: "uppercase", fontFamily: "var(--mono)", letterSpacing: 0.3 },
   hitlReason: { fontSize: 12, color: "var(--ink-soft)", marginTop: 8, lineHeight: 1.5 },
-  hitlActions: { display: "flex", gap: 8, marginTop: 10 },
+  hitlActions: { display: "flex", gap: 6, marginTop: 10 },
   approveBtn: {
-    flex: 1, fontSize: 11.5, fontWeight: 600, padding: "7px 10px", borderRadius: 6,
+    flex: 1, fontSize: 11, fontWeight: 600, padding: "7px 8px", borderRadius: 6,
     border: "1px solid var(--success, #168A52)", background: "transparent", color: "#168A52", cursor: "pointer",
   },
+  holdBtn: {
+    flex: 1, fontSize: 11, fontWeight: 600, padding: "7px 8px", borderRadius: 6,
+    border: "1px solid #B8860B", background: "transparent", color: "#B8860B", cursor: "pointer",
+  },
   rejectBtn: {
-    flex: 1, fontSize: 11.5, fontWeight: 600, padding: "7px 10px", borderRadius: 6,
+    flex: 1, fontSize: 11, fontWeight: 600, padding: "7px 8px", borderRadius: 6,
     border: "1px solid var(--danger)", background: "transparent", color: "var(--danger)", cursor: "pointer",
   },
   hitlStatusBadge: { display: "inline-block", marginTop: 10, fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 6 },
   hitlApproved: { background: "rgba(22,138,82,0.12)", color: "#168A52" },
   hitlRejected: { background: "var(--danger-soft)", color: "var(--danger)" },
+  hitlHold: { background: "rgba(184,134,11,0.12)", color: "#B8860B", marginLeft: 6 },
+  userFilterSelect: {
+    width: "100%", marginBottom: 12, padding: "7px 10px", fontSize: 12.5,
+    border: "1px solid var(--line)", borderRadius: 6, background: "var(--surface)", color: "var(--ink)",
+  },
+  guardrailInfoCard: {
+    background: "var(--paper)", border: "1px solid var(--line)", borderRadius: 8,
+    padding: 12, marginBottom: 8,
+  },
+  guardrailInfoName: { fontSize: 12.5, fontWeight: 700, color: "var(--ink)" },
+  guardrailInfoStage: { fontSize: 10.5, color: "var(--primary)", marginTop: 2, fontFamily: "var(--mono)", textTransform: "uppercase", letterSpacing: 0.3 },
+  guardrailInfoDesc: { fontSize: 12, color: "var(--ink-soft)", marginTop: 5, lineHeight: 1.5 },
 };

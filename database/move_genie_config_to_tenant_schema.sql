@@ -28,6 +28,12 @@
 -- tenant_application_schemas.sql.
 -- ============================================================================
 
+-- Defensive: don't assume tenant_template already exists just because
+-- tenant_application_schemas.sql is supposed to have run first. If it
+-- hasn't (wrong run order, or a database whose history predates that
+-- file), this makes the migration self-sufficient instead of failing.
+CREATE SCHEMA IF NOT EXISTS tenant_template;
+
 -- ── 1. Template tables ──────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS tenant_template.genie_query_parameter_fields (

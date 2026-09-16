@@ -1,0 +1,6 @@
+id,tenant_id,email,display_name,entra_object_id,is_active,created_at,password_hash,auth_provider,oauth_subject,failed_login_attempts,locked_until,last_login_at
+b2222222-0000-0000-0000-000000000001,22222222-2222-2222-2222-222222222222,james.okafor@xyzbank.demo,James Okafor,,t,2026-08-13 19:11:29.956335+05:30,,local,,0,,
+b2222222-0000-0000-0000-000000000002,22222222-2222-2222-2222-222222222222,elena.marsh@xyzbank.demo,Elena Marsh,,t,2026-08-26 02:20:36.841989+05:30,,local,,0,,
+b2222222-0000-0000-0000-000000000003,22222222-2222-2222-2222-222222222222,diane.osei@xyzbank.demo,Diane Osei,,t,2026-08-26 02:20:36.841989+05:30,,local,,0,,
+b2222222-0000-0000-0000-000000000004,22222222-2222-2222-2222-222222222222,marcus.lindqvist@xyzbank.demo,Marcus Lindqvist,,t,2026-08-26 02:20:36.841989+05:30,,local,,0,,
+b2222222-0000-0000-0000-000000000005,22222222-2222-2222-2222-222222222222,priya.subramanian@xyzbank.demo,Priya Subramanian,,t,2026-08-26 02:20:36.841989+05:30,,local,,0,,

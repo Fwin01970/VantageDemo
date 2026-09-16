@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   fetchUseCases, createUseCase, updateUseCase, deleteUseCase, runUseCase, sendChatMessage,
-  UseCase, ApiError, GenieResult,
+  UseCase, ApiError, GenieResult, pinItem, deletePinnedItem,
 } from "../lib/api";
 import ChatDataChart from "../components/ChatDataChart";
 import MarkdownLite from "../components/MarkdownLite";
 import ConfirmDialog from "../components/ConfirmDialog";
+import { truncateTitle } from "../lib/text";
 
 interface Props {
   token: string;
@@ -66,6 +67,8 @@ export default function UseCasesPage({ token, canCreate, onSessionExpired, onRes
   // rather than per-card state, since only one launch is ever "current."
   const [launchedTitle, setLaunchedTitle] = useState<string | null>(null);
   const [launchRun, setLaunchRun] = useState<RunState>(EMPTY_RUN);
+  const [pinned, setPinned] = useState(false);
+  const [chartPinId, setChartPinId] = useState<string | null>(null);
 
   function load() {
     fetchUseCases(token).then(setCases).catch(() => setCases([]));
@@ -127,6 +130,8 @@ export default function UseCasesPage({ token, canCreate, onSessionExpired, onRes
 
   function handleLaunch(c: UseCase) {
     setLaunchedTitle(c.title);
+    setPinned(false);
+    setChartPinId(null);
     if (c.has_cached_query) {
       handleLaunchCached(c);
     } else {
@@ -171,6 +176,35 @@ export default function UseCasesPage({ token, canCreate, onSessionExpired, onRes
         ...EMPTY_RUN, question: c.sample_question,
         error: e instanceof ApiError ? e.message : "Something went wrong running this use case.",
       });
+    }
+  }
+
+  async function handlePinLaunchText() {
+    if (!launchRun.reply || !launchedTitle) return;
+    try {
+      await pinItem(token, "use_case", "insight", truncateTitle(launchedTitle) || "Use case result", {
+        text: launchRun.reply,
+      });
+      setPinned(true);
+    } catch {
+      /* non-critical */
+    }
+  }
+
+  async function handlePinLaunchChart() {
+    if (!launchRun.chartData || !launchedTitle) return;
+    try {
+      if (chartPinId) {
+        await deletePinnedItem(token, chartPinId);
+        setChartPinId(null);
+      } else {
+        const { id } = await pinItem(token, "use_case", "chart", truncateTitle(launchedTitle) || "Use case chart", {
+          columns: launchRun.chartData.columns, rows: launchRun.chartData.rows,
+        });
+        setChartPinId(id);
+      }
+    } catch {
+      /* non-critical */
     }
   }
 
@@ -358,7 +392,21 @@ export default function UseCasesPage({ token, canCreate, onSessionExpired, onRes
           here instead of navigating away to Ask AI. */}
       {launchedTitle && (launchRun.reply || launchRun.blocked || launchRun.error || launchRun.loading) && (
         <div style={styles.launchResultWrap}>
-          <div style={styles.launchResultHeader}>Result — {launchedTitle}</div>
+          <div style={styles.launchResultHeaderRow}>
+            <div style={styles.launchResultHeader}>Result — {launchedTitle}</div>
+            {launchRun.reply && !launchRun.blocked && (
+              <div style={styles.pinRow}>
+                <button style={styles.pinButton} onClick={handlePinLaunchText} disabled={pinned}>
+                  {pinned ? "📌 Pinned" : "📌 Pin text"}
+                </button>
+                {launchRun.chartData && launchRun.chartData.columns.length > 0 && (
+                  <button style={styles.pinButton} onClick={handlePinLaunchChart}>
+                    {chartPinId ? "📊 Unpin chart" : "📊 Pin chart"}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
           <RunResultPanel run={launchRun} />
         </div>
       )}
@@ -435,7 +483,13 @@ const styles: Record<string, React.CSSProperties> = {
   cachedTag: { fontSize: 11, textTransform: "none" },
   launchBtn: { background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", color: "var(--ink)" },
   launchResultWrap: { marginTop: 24 },
-  launchResultHeader: { fontSize: 12, fontWeight: 700, color: "var(--ink-soft)", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 },
+  launchResultHeaderRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  pinRow: { display: "flex", gap: 8 },
+  pinButton: {
+    fontSize: 12, background: "none", border: "1px solid var(--line)", borderRadius: 6,
+    padding: "6px 10px", cursor: "pointer", color: "var(--ink-soft)",
+  },
+  launchResultHeader: { fontSize: 12, fontWeight: 700, color: "var(--ink-soft)", textTransform: "uppercase", letterSpacing: 0.4 },
   runCard: { background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 10, padding: 18, fontSize: 13.5, lineHeight: 1.6 },
   runLoading: { color: "var(--ink-soft)" },
   runError: { color: "var(--danger)" },

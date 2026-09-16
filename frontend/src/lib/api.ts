@@ -49,14 +49,6 @@ export interface GenieResult {
   };
 }
 
-export interface AuditEntry {
-  id: string;
-  user_id: string | null;
-  action: string;
-  details: Record<string, unknown>;
-  created_at: string;
-}
-
 export interface Company {
   id: string;
   name: string;
@@ -93,6 +85,9 @@ export interface PinnedItem {
   title: string;
   payload: any;
   created_at: string;
+  is_shared: boolean;
+  is_mine: boolean;
+  owner_name: string | null;
 }
 
 export interface ChatMessage {
@@ -216,14 +211,11 @@ export async function askGenie(token: string, question: string): Promise<GenieRe
   return handle<GenieResult>(res);
 }
 
-export async function fetchAuditLog(token: string): Promise<AuditEntry[]> {
-  const res = await fetch(`${API_BASE}/audit/log`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  return handle<AuditEntry[]>(res);
-}
-
 // ── Governance: guardrail proxy-layer activity + HITL review queue ──────
+// NOTE: fetchAuditLog / GET /audit/log was removed — raw audit history
+// is Platform Super Admin-only now (see fetchAdminAuditLog above), not
+// something an ordinary tenant user's Governance panel shows anymore.
+
 export interface GuardrailActivityEntry {
   id: string;
   user_id: string | null;
@@ -232,15 +224,23 @@ export interface GuardrailActivityEntry {
   created_at: string;
 }
 
+export interface GuardrailInfo {
+  name: string;
+  stage: string;
+  description: string;
+  pattern_count?: number;
+}
+
 export interface HitlReview {
   id: string;
   question: string;
   check_type: string;
   reason: string;
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "approved" | "rejected" | "hold";
   created_at: string;
   reviewed_at: string | null;
   decision_note: string | null;
+  user_id: string | null;
   user_name: string | null;
   reviewed_by_name: string | null;
 }
@@ -252,8 +252,18 @@ export async function fetchGuardrailActivity(token: string): Promise<GuardrailAc
   return handle<GuardrailActivityEntry[]>(res);
 }
 
-export async function fetchHitlQueue(token: string, status?: string): Promise<HitlReview[]> {
-  const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+export async function fetchGuardrailsInfo(token: string): Promise<GuardrailInfo[]> {
+  const res = await fetch(`${API_BASE}/governance/guardrails-info`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return handle<GuardrailInfo[]>(res);
+}
+
+export async function fetchHitlQueue(token: string, status?: string, userId?: string): Promise<HitlReview[]> {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (userId) params.set("user_id", userId);
+  const qs = params.toString() ? `?${params}` : "";
   const res = await fetch(`${API_BASE}/governance/hitl${qs}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -261,7 +271,7 @@ export async function fetchHitlQueue(token: string, status?: string): Promise<Hi
 }
 
 export async function decideHitlCase(
-  token: string, reviewId: string, decision: "approved" | "rejected", note?: string
+  token: string, reviewId: string, decision: "approved" | "rejected" | "hold", note?: string
 ): Promise<{ id: string; status: string }> {
   const res = await fetch(`${API_BASE}/governance/hitl/${reviewId}/decision`, {
     method: "POST",
@@ -301,6 +311,121 @@ export async function createUser(
     body: JSON.stringify({ tenant_id: tenantId, display_name: displayName, email }),
   });
   return handle(res);
+}
+
+export interface AdminUser {
+  id: string;
+  tenant_id: string;
+  tenant_name: string;
+  display_name: string;
+  email: string;
+  is_active: boolean;
+  created_at: string;
+  last_login_at: string | null;
+}
+
+export interface QueryParameterConnection {
+  id: string;
+  platform: string;
+  config: { host?: string; warehouse_id?: string; catalog?: string; schema?: string };
+  secret_ref: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface AdminAuditEntry {
+  id: string;
+  tenant_id: string;
+  tenant_name: string;
+  user_id: string | null;
+  user_display_name: string | null;
+  action: string;
+  details: Record<string, unknown>;
+  created_at: string;
+}
+
+async function adminFetch<T>(token: string, path: string, opts: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...opts,
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(opts.headers ?? {}) },
+  });
+  return handle<T>(res);
+}
+
+export async function updateCompany(token: string, tenantId: string, name: string, industry: string): Promise<Company> {
+  return adminFetch(token, `/admin/companies/${tenantId}`, { method: "PUT", body: JSON.stringify({ name, industry }) });
+}
+
+export async function setCompanyActive(token: string, tenantId: string, active: boolean): Promise<{ id: string; is_active: boolean }> {
+  return adminFetch(token, `/admin/companies/${tenantId}/${active ? "enable" : "disable"}`, { method: "PUT" });
+}
+
+export async function deleteCompany(token: string, tenantId: string): Promise<void> {
+  await adminFetch(token, `/admin/companies/${tenantId}`, { method: "DELETE" });
+}
+
+export async function fetchUsers(token: string): Promise<AdminUser[]> {
+  return adminFetch(token, "/admin/users");
+}
+
+export async function updateUser(token: string, userId: string, displayName: string, email: string): Promise<AdminUser> {
+  return adminFetch(token, `/admin/users/${userId}`, { method: "PUT", body: JSON.stringify({ display_name: displayName, email }) });
+}
+
+export async function setUserActive(token: string, userId: string, active: boolean): Promise<{ id: string; is_active: boolean }> {
+  return adminFetch(token, `/admin/users/${userId}/${active ? "enable" : "disable"}`, { method: "PUT" });
+}
+
+export async function deleteUser(token: string, userId: string): Promise<void> {
+  await adminFetch(token, `/admin/users/${userId}`, { method: "DELETE" });
+}
+
+export async function resetUserPassword(token: string, userId: string): Promise<{ id: string; temporary_password: string }> {
+  return adminFetch(token, `/admin/users/${userId}/reset-password`, { method: "POST" });
+}
+
+export async function fetchQueryParameters(token: string, tenantId: string): Promise<QueryParameterConnection[]> {
+  return adminFetch(token, `/admin/tenants/${tenantId}/query-parameters`);
+}
+
+export async function saveQueryParameters(
+  token: string, tenantId: string,
+  data: { platform: string; host?: string; warehouse_id?: string; catalog?: string; schema_name?: string; secret_ref?: string; is_active: boolean }
+): Promise<QueryParameterConnection> {
+  return adminFetch(token, `/admin/tenants/${tenantId}/query-parameters`, { method: "PUT", body: JSON.stringify(data) });
+}
+
+export async function deleteQueryParameters(token: string, connectionId: string): Promise<void> {
+  await adminFetch(token, `/admin/query-parameters/${connectionId}`, { method: "DELETE" });
+}
+
+export async function fetchTenantRoles(token: string, tenantId: string): Promise<{ id: string; name: string; permission_codes: string[]; user_count: number }[]> {
+  return adminFetch(token, `/admin/tenants/${tenantId}/roles`);
+}
+
+export async function fetchUserRoles(token: string, userId: string): Promise<{ role_id: string; role_name: string }[]> {
+  return adminFetch(token, `/admin/users/${userId}/roles`);
+}
+
+export async function fetchAllPermissions(token: string): Promise<{ id: string; code: string; description: string }[]> {
+  return adminFetch(token, `/admin/permissions`);
+}
+
+export async function setUserPermissions(
+  token: string, userId: string, tenantId: string, permissionCodes: string[]
+): Promise<{ user_id: string; role_id: string; permission_codes: string[] }> {
+  return adminFetch(token, `/admin/users/${userId}/permissions`, {
+    method: "PUT", body: JSON.stringify({ tenant_id: tenantId, permission_codes: permissionCodes }),
+  });
+}
+
+export async function fetchAdminAuditLog(
+  token: string, tenantId?: string, userId?: string
+): Promise<AdminAuditEntry[]> {
+  const params = new URLSearchParams();
+  if (tenantId) params.set("tenant_id", tenantId);
+  if (userId) params.set("user_id", userId);
+  return adminFetch(token, `/admin/audit-log${params.toString() ? `?${params}` : ""}`);
 }
 
 export async function sendChatMessage(
@@ -417,6 +542,14 @@ export async function deletePinnedItem(token: string, id: string): Promise<void>
     method: "DELETE",
     headers: { Authorization: `Bearer ${token}` },
   });
+}
+
+export async function setPinnedItemShared(token: string, id: string, shared: boolean): Promise<{ id: string; is_shared: boolean }> {
+  const res = await fetch(`${API_BASE}/dashboard/items/${id}/${shared ? "share" : "unshare"}`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return handle(res);
 }
 
 // ── Per-user Credentials (Profile → Credentials) ────────────────────────

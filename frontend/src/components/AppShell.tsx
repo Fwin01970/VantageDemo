@@ -4,7 +4,7 @@ import ChatPage from "../pages/ChatPage";
 import GeniePage from "../pages/GeniePage";
 import DashboardPage from "../pages/DashboardPage";
 import UseCasesPage from "../pages/UseCasesPage";
-import AdminPage from "../pages/AdminPage";
+import { TenantsPage, UsersPage, AuditLogPage, QueryParametersPage, ManageTabsPage, ManageSchemaTablesPage } from "../pages/AdminPages";
 import GovernancePanel from "./GovernancePanel";
 import CredentialsModal from "./CredentialsModal";
 import UserMenu from "./UserMenu";
@@ -25,7 +25,8 @@ interface Props {
   onRequestLogin?: () => void;
 }
 
-type Tab = "home" | "chat" | "genie" | "usecases" | "dashboards" | "admin";
+type Tab = "home" | "chat" | "genie" | "usecases" | "dashboards"
+  | "admin-tenants" | "admin-users" | "admin-audit" | "admin-query-params" | "admin-manage-tabs" | "admin-schema-tables";
 
 export default function AppShell({ token, onLogout, demoMode = null, onRequestLogin }: Props) {
   const [tab, setTab] = useState<Tab>("home");
@@ -54,6 +55,12 @@ export default function AppShell({ token, onLogout, demoMode = null, onRequestLo
   }, [token, demoMode]);
 
   const canManagePlatform = !demoMode && (me?.permissions.includes("platform:manage") ?? false);
+  // A Super Admin session is platform-operator tooling, not a business
+  // user's workspace — it deliberately shows only Ask AI, Dashboard, and
+  // Admin. Use Cases (tenant-specific preset business questions) has no
+  // meaning for a Super Admin account, which doesn't belong to any real
+  // customer tenant.
+  const isSuperAdmin = canManagePlatform;
   // Genie's tab visibility normally follows the real permission — but
   // the guided demo walks through a Genie step regardless of role, so
   // demo mode always shows the tab (it just renders a locked
@@ -145,16 +152,35 @@ export default function AppShell({ token, onLogout, demoMode = null, onRequestLo
             Genie
           </button>
         )}
-        <button style={{ ...styles.navBtn, ...(tab === "usecases" ? styles.navBtnActive : {}) }} onClick={() => setTab("usecases")}>
-          Use Cases
-        </button>
+        {!isSuperAdmin && (
+          <button style={{ ...styles.navBtn, ...(tab === "usecases" ? styles.navBtnActive : {}) }} onClick={() => setTab("usecases")}>
+            Use Cases
+          </button>
+        )}
         <button style={{ ...styles.navBtn, ...(tab === "dashboards" ? styles.navBtnActive : {}) }} onClick={() => setTab("dashboards")}>
           Dashboards
         </button>
         {canManagePlatform && (
-          <button style={{ ...styles.navBtn, ...(tab === "admin" ? styles.navBtnActive : {}) }} onClick={() => setTab("admin")}>
-            Admin
-          </button>
+          <>
+            <button style={{ ...styles.navBtn, ...(tab === "admin-tenants" ? styles.navBtnActive : {}) }} onClick={() => setTab("admin-tenants")}>
+              Tenants
+            </button>
+            <button style={{ ...styles.navBtn, ...(tab === "admin-users" ? styles.navBtnActive : {}) }} onClick={() => setTab("admin-users")}>
+              Users
+            </button>
+            <button style={{ ...styles.navBtn, ...(tab === "admin-query-params" ? styles.navBtnActive : {}) }} onClick={() => setTab("admin-query-params")}>
+              Query Parameters
+            </button>
+            <button style={{ ...styles.navBtn, ...(tab === "admin-manage-tabs" ? styles.navBtnActive : {}) }} onClick={() => setTab("admin-manage-tabs")}>
+              Manage Tabs
+            </button>
+            <button style={{ ...styles.navBtn, ...(tab === "admin-schema-tables" ? styles.navBtnActive : {}) }} onClick={() => setTab("admin-schema-tables")}>
+              Manage Schema &amp; Tables
+            </button>
+            <button style={{ ...styles.navBtn, ...(tab === "admin-audit" ? styles.navBtnActive : {}) }} onClick={() => setTab("admin-audit")}>
+              Audit Log
+            </button>
+          </>
         )}
       </nav>
 
@@ -253,9 +279,26 @@ export default function AppShell({ token, onLogout, demoMode = null, onRequestLo
           )}
         </div>
         {canManagePlatform && (
-          <div style={{ display: tab === "admin" ? "flex" : "none", flexDirection: "column", flex: 1, minHeight: 0 }}>
-            <AdminPage token={token} sessionExpired={sessionExpired} onSessionExpired={() => setSessionExpired(true)} />
-          </div>
+          <>
+            <div style={{ display: tab === "admin-tenants" ? "flex" : "none", flexDirection: "column", flex: 1, minHeight: 0, overflowY: "auto" }}>
+              <TenantsPage token={token} sessionExpired={sessionExpired} onSessionExpired={() => setSessionExpired(true)} />
+            </div>
+            <div style={{ display: tab === "admin-users" ? "flex" : "none", flexDirection: "column", flex: 1, minHeight: 0, overflowY: "auto" }}>
+              <UsersPage token={token} sessionExpired={sessionExpired} onSessionExpired={() => setSessionExpired(true)} />
+            </div>
+            <div style={{ display: tab === "admin-audit" ? "flex" : "none", flexDirection: "column", flex: 1, minHeight: 0, overflowY: "auto" }}>
+              <AuditLogPage token={token} sessionExpired={sessionExpired} onSessionExpired={() => setSessionExpired(true)} />
+            </div>
+            <div style={{ display: tab === "admin-query-params" ? "flex" : "none", flexDirection: "column", flex: 1, minHeight: 0, overflowY: "auto" }}>
+              <QueryParametersPage token={token} sessionExpired={sessionExpired} onSessionExpired={() => setSessionExpired(true)} />
+            </div>
+            <div style={{ display: tab === "admin-manage-tabs" ? "flex" : "none", flexDirection: "column", flex: 1, minHeight: 0, overflowY: "auto" }}>
+              <ManageTabsPage token={token} sessionExpired={sessionExpired} onSessionExpired={() => setSessionExpired(true)} />
+            </div>
+            <div style={{ display: tab === "admin-schema-tables" ? "flex" : "none", flexDirection: "column", flex: 1, minHeight: 0, overflowY: "auto" }}>
+              <ManageSchemaTablesPage token={token} sessionExpired={sessionExpired} onSessionExpired={() => setSessionExpired(true)} />
+            </div>
+          </>
         )}
       </div>
 
