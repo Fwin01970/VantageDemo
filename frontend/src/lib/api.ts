@@ -85,7 +85,6 @@ export interface PinnedItem {
   title: string;
   payload: any;
   created_at: string;
-  is_shared: boolean;
   is_mine: boolean;
   owner_name: string | null;
 }
@@ -544,12 +543,34 @@ export async function deletePinnedItem(token: string, id: string): Promise<void>
   });
 }
 
-export async function setPinnedItemShared(token: string, id: string, shared: boolean): Promise<{ id: string; is_shared: boolean }> {
-  const res = await fetch(`${API_BASE}/dashboard/items/${id}/${shared ? "share" : "unshare"}`, {
-    method: "PUT",
+export interface DashboardShare {
+  id: string;
+  shared_with_user_id: string;
+  display_name: string;
+  email: string;
+}
+
+export async function fetchMyDashboardShares(token: string): Promise<DashboardShare[]> {
+  const res = await fetch(`${API_BASE}/dashboard/shares`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   return handle(res);
+}
+
+export async function shareDashboard(token: string, email: string): Promise<{ shared_with: string }> {
+  const res = await fetch(`${API_BASE}/dashboard/shares`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ email }),
+  });
+  return handle(res);
+}
+
+export async function unshareDashboard(token: string, shareId: string): Promise<void> {
+  await fetch(`${API_BASE}/dashboard/shares/${shareId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }
 
 // ── Per-user Credentials (Profile → Credentials) ────────────────────────
